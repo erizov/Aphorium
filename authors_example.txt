@@ -1,0 +1,17 @@
+# Example authors file for batch loading
+# One author name per line
+# For English WikiQuote:
+William Shakespeare
+Oscar Wilde
+Mark Twain
+Charles Dickens
+Jane Austen
+George Orwell
+
+# For Russian WikiQuote:
+Александр Пушкин
+Фёдор Достоевский
+Лев Толстой
+Антон Чехов
+Михаил Булгаков
+
