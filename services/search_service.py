@@ -134,21 +134,35 @@ class SearchService:
             quote: Quote model instance
 
         Returns:
-            Quote dictionary
+            Quote dictionary compatible with QuoteSchema
         """
-        return {
+        result = {
             "id": quote.id,
             "text": quote.text,
             "language": quote.language,
-            "author": {
-                "id": quote.author.id,
-                "name": quote.author.name
-            } if quote.author else None,
-            "source": {
-                "id": quote.source.id,
-                "title": quote.source.title
-            } if quote.source else None,
+            "author": None,
+            "source": None,
             "created_at": quote.created_at.isoformat() if quote.created_at
             else None
         }
+        
+        # Add author if exists
+        if quote.author:
+            result["author"] = {
+                "id": quote.author.id,
+                "name": quote.author.name,
+                "language": quote.author.language,
+                "bio": quote.author.bio
+            }
+        
+        # Add source if exists
+        if quote.source:
+            result["source"] = {
+                "id": quote.source.id,
+                "title": quote.source.title,
+                "language": quote.source.language,
+                "source_type": quote.source.source_type
+            }
+        
+        return result
 

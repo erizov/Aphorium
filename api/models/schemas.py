@@ -44,6 +44,7 @@ class QuoteSchema(BaseModel):
     source: Optional[SourceSchema] = None
     has_translation: Optional[bool] = None
     translation_count: Optional[int] = None
+    created_at: Optional[str] = None  # ISO format timestamp
 
     class Config:
         """Pydantic config."""
