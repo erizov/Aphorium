@@ -1,8 +1,8 @@
 #!/bin/bash
-# Bash script to start Aphorium API server
+# Bash script to start Aphorium API server and frontend
 # Usage: ./start_app.sh
 
-echo "Starting Aphorium API server..."
+echo "Starting Aphorium..."
 
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then
@@ -15,10 +15,19 @@ echo "Activating virtual environment..."
 source venv/bin/activate
 
 # Check if dependencies are installed
-echo "Checking dependencies..."
+echo "Checking backend dependencies..."
 if ! pip show fastapi &> /dev/null; then
-    echo "Installing dependencies..."
+    echo "Installing backend dependencies..."
     pip install -r requirements.txt
+fi
+
+# Check frontend dependencies
+echo "Checking frontend dependencies..."
+if [ ! -d "frontend/node_modules" ]; then
+    echo "Installing frontend dependencies..."
+    cd frontend
+    npm install
+    cd ..
 fi
 
 # Check if .env file exists
@@ -50,7 +59,6 @@ if [ -f ".env" ]; then
     DB_URL=$(grep "DATABASE_URL" .env | cut -d '=' -f2)
     if [[ $DB_URL == *"postgresql"* ]]; then
         echo "Using PostgreSQL database"
-        # Check if PostgreSQL is running (Linux/Mac)
         if command -v pg_isready &> /dev/null; then
             if pg_isready -q; then
                 echo "  PostgreSQL is ready"
@@ -74,11 +82,61 @@ if [ ! -f ".db_initialized" ]; then
     touch .db_initialized
 fi
 
-# Start the server
-echo "Starting API server on http://localhost:8000"
-echo "API docs available at http://localhost:8000/docs"
-echo "Press Ctrl+C to stop the server"
+# Create logs directory
+mkdir -p logs
+
+# PID file
+PID_FILE=".app_pids.txt"
+
+# Start backend server
+echo ""
+echo "Starting backend API server..."
+uvicorn api.main:app --host 0.0.0.0 --port 8000 > logs/backend.log 2>&1 &
+BACKEND_PID=$!
+echo $BACKEND_PID > $PID_FILE
+
+# Start frontend dev server
+echo "Starting frontend dev server..."
+cd frontend
+npm run dev > ../logs/frontend.log 2>&1 &
+FRONTEND_PID=$!
+cd ..
+echo $FRONTEND_PID >> $PID_FILE
+
+echo ""
+echo "============================================================"
+echo "Aphorium is starting..."
+echo "============================================================"
+echo "Backend API: http://localhost:8000"
+echo "API Docs:    http://localhost:8000/docs"
+echo "Frontend:    http://localhost:3000"
+echo ""
+echo "To stop both servers, run: ./stop_app.sh"
 echo ""
 
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+# Wait a moment for servers to start
+sleep 3
 
+# Check if servers are running
+if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+    echo "[OK] Backend server is running"
+else
+    echo "[...] Backend server starting..."
+fi
+
+echo "[...] Frontend server starting..."
+echo ""
+echo "Servers are running in background."
+echo "Backend PID: $BACKEND_PID"
+echo "Frontend PID: $FRONTEND_PID"
+echo ""
+echo "Logs:"
+echo "  Backend:  logs/backend.log"
+echo "  Frontend: logs/frontend.log"
+echo ""
+
+# Wait for interrupt
+trap 'echo ""; echo "Stopping servers..."; ./stop_app.sh; exit' INT TERM
+
+# Keep script running
+wait

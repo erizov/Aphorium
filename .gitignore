@@ -40,4 +40,5 @@ Thumbs.db
 # Project specific
 data/
 scraped_data/
+.app_pids.txt
 
