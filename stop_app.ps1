@@ -3,78 +3,74 @@
 
 Write-Host "Stopping Aphorium servers..." -ForegroundColor Yellow
 
-# Stop background jobs
+# Read PIDs from file
 $pidFile = ".app_pids.txt"
 if (Test-Path $pidFile) {
     $pids = Get-Content $pidFile
     foreach ($pid in $pids) {
-        $job = Get-Job -Id $pid -ErrorAction SilentlyContinue
-        if ($job) {
-            Write-Host "Stopping job $pid..." -ForegroundColor Cyan
-            Stop-Job -Id $pid -ErrorAction SilentlyContinue
-            Remove-Job -Id $pid -Force -ErrorAction SilentlyContinue
+        if ($pid -match '^\d+$') {
+            $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            if ($proc) {
+                Write-Host "Stopping process $pid..." -ForegroundColor Cyan
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
         }
     }
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
 }
 
-# Stop all background jobs
-Get-Job | Where-Object { $_.Command -like "*uvicorn*" -or $_.Command -like "*npm*" } | ForEach-Object {
-    Write-Host "Stopping job $($_.Id)..." -ForegroundColor Cyan
-    Stop-Job -Id $_.Id -ErrorAction SilentlyContinue
-    Remove-Job -Id $_.Id -Force -ErrorAction SilentlyContinue
+# Clean up temporary scripts
+if (Test-Path "start_backend.ps1") {
+    Remove-Item "start_backend.ps1" -Force -ErrorAction SilentlyContinue
+}
+if (Test-Path "start_frontend.ps1") {
+    Remove-Item "start_frontend.ps1" -Force -ErrorAction SilentlyContinue
 }
 
-# Find and kill uvicorn processes
-$uvicornProcs = Get-Process | Where-Object { 
-    $_.ProcessName -like "*python*" -and 
-    $_.CommandLine -like "*uvicorn*" -or
-    $_.CommandLine -like "*api.main*"
-} -ErrorAction SilentlyContinue
-
-if ($uvicornProcs) {
-    foreach ($proc in $uvicornProcs) {
-        Write-Host "Stopping uvicorn process $($proc.Id)..." -ForegroundColor Cyan
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-    }
+# Find and kill uvicorn/python processes
+Get-Process python -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -like "*uvicorn*" -or $_.CommandLine -like "*api.main*"
+} | ForEach-Object {
+    Write-Host "Stopping Python process $($_.Id)..." -ForegroundColor Cyan
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
 # Find and kill node processes (frontend)
-$nodeProcs = Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object {
-    $_.Path -like "*frontend*" -or
-    $_.CommandLine -like "*vite*" -or
-    $_.CommandLine -like "*npm*"
+Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "Stopping node process $($_.Id)..." -ForegroundColor Cyan
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
-if ($nodeProcs) {
-    foreach ($proc in $nodeProcs) {
-        Write-Host "Stopping node process $($proc.Id)..." -ForegroundColor Cyan
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-    }
-}
-
-# Also try to find processes by port
+# Kill processes by port
 $backendPort = 8000
 $frontendPort = 3000
 
-# Kill processes on backend port
-$backendProcs = Get-NetTCPConnection -LocalPort $backendPort -ErrorAction SilentlyContinue | 
-    Select-Object -ExpandProperty OwningProcess -Unique
-if ($backendProcs) {
-    foreach ($pid in $backendProcs) {
-        Write-Host "Stopping process on port $backendPort (PID: $pid)..." -ForegroundColor Cyan
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+# Backend port
+try {
+    $backendProcs = Get-NetTCPConnection -LocalPort $backendPort -ErrorAction SilentlyContinue | 
+        Select-Object -ExpandProperty OwningProcess -Unique
+    if ($backendProcs) {
+        foreach ($pid in $backendProcs) {
+            Write-Host "Stopping process on port $backendPort (PID: $pid)..." -ForegroundColor Cyan
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        }
     }
+} catch {
+    # Port check failed, continue
 }
 
-# Kill processes on frontend port
-$frontendProcs = Get-NetTCPConnection -LocalPort $frontendPort -ErrorAction SilentlyContinue | 
-    Select-Object -ExpandProperty OwningProcess -Unique
-if ($frontendProcs) {
-    foreach ($pid in $frontendProcs) {
-        Write-Host "Stopping process on port $frontendPort (PID: $pid)..." -ForegroundColor Cyan
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+# Frontend port
+try {
+    $frontendProcs = Get-NetTCPConnection -LocalPort $frontendPort -ErrorAction SilentlyContinue | 
+        Select-Object -ExpandProperty OwningProcess -Unique
+    if ($frontendProcs) {
+        foreach ($pid in $frontendProcs) {
+            Write-Host "Stopping process on port $frontendPort (PID: $pid)..." -ForegroundColor Cyan
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        }
     }
+} catch {
+    # Port check failed, continue
 }
 
 Write-Host "Servers stopped." -ForegroundColor Green

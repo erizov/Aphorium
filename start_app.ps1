@@ -93,26 +93,33 @@ if (-not (Test-Path "logs")) {
     New-Item -ItemType Directory -Path "logs" -Force | Out-Null
 }
 
-# Store PIDs for stopping
+# PID file
 $pidFile = ".app_pids.txt"
 
-# Start backend server
+# Start backend server in new window
 Write-Host ""
 Write-Host "Starting backend API server..." -ForegroundColor Green
-$backendJob = Start-Job -ScriptBlock {
-    Set-Location $using:PWD
-    & "$using:PWD\venv\Scripts\python.exe" -m uvicorn api.main:app --host 0.0.0.0 --port 8000
-}
+$backendScript = @"
+cd '$PWD'
+& '$PWD\venv\Scripts\python.exe' -m uvicorn api.main:app --host 0.0.0.0 --port 8000
+pause
+"@
+$backendScript | Out-File -FilePath "start_backend.ps1" -Encoding utf8
 
-# Start frontend dev server
+$backendProcess = Start-Process powershell -ArgumentList "-NoExit", "-File", "start_backend.ps1" -PassThru
+$backendProcess.Id | Out-File -FilePath $pidFile -Encoding utf8
+
+# Start frontend dev server in new window
 Write-Host "Starting frontend dev server..." -ForegroundColor Green
-$frontendJob = Start-Job -ScriptBlock {
-    Set-Location "$using:PWD\frontend"
-    npm run dev
-}
+$frontendScript = @"
+cd '$PWD\frontend'
+npm run dev
+pause
+"@
+$frontendScript | Out-File -FilePath "start_frontend.ps1" -Encoding utf8
 
-# Save PIDs
-@($backendJob.Id, $frontendJob.Id) | Out-File -FilePath $pidFile -Encoding utf8
+$frontendProcess = Start-Process powershell -ArgumentList "-NoExit", "-File", "start_frontend.ps1" -PassThru
+$frontendProcess.Id | Out-File -FilePath $pidFile -Append -Encoding utf8
 
 Write-Host ""
 Write-Host "=" * 60 -ForegroundColor Cyan
@@ -122,12 +129,12 @@ Write-Host "Backend API: http://localhost:8000" -ForegroundColor Yellow
 Write-Host "API Docs:    http://localhost:8000/docs" -ForegroundColor Yellow
 Write-Host "Frontend:    http://localhost:3000" -ForegroundColor Yellow
 Write-Host ""
+Write-Host "Both servers are running in separate windows." -ForegroundColor Green
 Write-Host "To stop both servers, run: .\stop_app.ps1" -ForegroundColor Cyan
-Write-Host "Or press Ctrl+C and run stop script" -ForegroundColor Cyan
 Write-Host ""
 
 # Wait a moment for servers to start
-Start-Sleep -Seconds 3
+Start-Sleep -Seconds 5
 
 # Check if servers are running
 try {
@@ -136,28 +143,13 @@ try {
         Write-Host "[OK] Backend server is running" -ForegroundColor Green
     }
 } catch {
-    Write-Host "[...] Backend server starting..." -ForegroundColor Yellow
+    Write-Host "[...] Backend server starting (check the backend window)..." -ForegroundColor Yellow
 }
 
-Write-Host "[...] Frontend server starting..." -ForegroundColor Yellow
+Write-Host "[...] Frontend server starting (check the frontend window)..." -ForegroundColor Yellow
 Write-Host ""
-Write-Host "Servers are running in background jobs." -ForegroundColor Green
-Write-Host "Check logs or visit the URLs above to verify." -ForegroundColor Cyan
+Write-Host "Backend PID: $($backendProcess.Id)" -ForegroundColor Gray
+Write-Host "Frontend PID: $($frontendProcess.Id)" -ForegroundColor Gray
 Write-Host ""
-Write-Host "To view job status: Get-Job" -ForegroundColor Gray
-Write-Host "To view job output: Receive-Job -Id <job_id>" -ForegroundColor Gray
-Write-Host ""
-
-# Keep script running to monitor
-try {
-    while ($true) {
-        Start-Sleep -Seconds 5
-        $jobs = Get-Job | Where-Object { $_.State -eq "Failed" }
-        if ($jobs) {
-            Write-Host "Warning: Some jobs have failed. Check with: Get-Job" -ForegroundColor Yellow
-        }
-    }
-} catch {
-    Write-Host "`nStopping servers..." -ForegroundColor Yellow
-    .\stop_app.ps1
-}
+Write-Host "You can close this window. Servers will continue running." -ForegroundColor Cyan
+Write-Host "Use .\stop_app.ps1 to stop both servers." -ForegroundColor Cyan
