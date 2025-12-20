@@ -102,37 +102,44 @@ python init_database.py
 uvicorn api.main:app --reload
 ```
 
-8. Start frontend:
-
-**Option A: React Frontend (Recommended)**
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Frontend will be available at http://localhost:3000
-
-**Option B: Simple HTML (Legacy)**
-```bash
-# Open frontend/index.html in your browser
-# Or serve with: python -m http.server 8000
-```
-
-### Managing the Server
+8. Start the application:
 
 **Windows:**
 ```bash
-.\start_app.ps1    # Start server
-.\stop_app.ps1     # Stop server
-.\restart_app.ps1  # Restart server
+.\start_app.ps1    # Starts both backend and frontend
 ```
 
 **Linux/Mac:**
 ```bash
-./start_app.sh     # Start server
-./stop_app.sh      # Stop server
-./restart_app.sh   # Restart server
+./start_app.sh     # Starts both backend and frontend
 ```
+
+This will start:
+- **Backend API** at http://localhost:8000
+- **Frontend** at http://localhost:3000
+- **API Docs** at http://localhost:8000/docs
+
+### Managing the Application
+
+**Windows:**
+```bash
+.\start_app.ps1    # Start both backend and frontend
+.\stop_app.ps1     # Stop both servers
+.\restart_app.ps1  # Restart both servers
+```
+
+**Linux/Mac:**
+```bash
+./start_app.sh     # Start both backend and frontend
+./stop_app.sh      # Stop both servers
+./restart_app.sh   # Restart both servers
+```
+
+**Note:** The start scripts automatically:
+- Check and install dependencies (backend and frontend)
+- Set up the database if needed
+- Start both servers in separate processes
+- Display server URLs and status
 
 ## Usage
 
