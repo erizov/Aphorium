@@ -102,7 +102,17 @@ python init_database.py
 uvicorn api.main:app --reload
 ```
 
-8. Open frontend:
+8. Start frontend:
+
+**Option A: React Frontend (Recommended)**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Frontend will be available at http://localhost:3000
+
+**Option B: Simple HTML (Legacy)**
 ```bash
 # Open frontend/index.html in your browser
 # Or serve with: python -m http.server 8000
