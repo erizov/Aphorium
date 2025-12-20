@@ -48,7 +48,7 @@ python -m scrapers.ingest --lang ru --author "Александр Пушкин"
 python -m scrapers.batch_loader --lang en --authors-file authors.txt
 ```
 
-## 3. Start Server
+## 3. Start Application
 
 **Windows:**
 ```powershell
@@ -60,11 +60,25 @@ python -m scrapers.batch_loader --lang en --authors-file authors.txt
 ./start_app.sh
 ```
 
-Server starts at: http://localhost:8000
+This starts both:
+- **Backend API** at http://localhost:8000
+- **Frontend** at http://localhost:3000
 
-## 4. Use Frontend
+## 4. Stop Application
 
-Open `frontend/index.html` in your browser.
+**Windows:**
+```powershell
+.\stop_app.ps1
+```
+
+**Linux/Mac:**
+```bash
+./stop_app.sh
+```
+
+## 5. Use Frontend
+
+Open http://localhost:3000 in your browser.
 
 **Features:**
 - Search works in both English and Russian
@@ -72,7 +86,7 @@ Open `frontend/index.html` in your browser.
 - Results show quotes in both languages
 - Bilingual quotes are highlighted
 
-## 5. Search Examples
+## 6. Search Examples
 
 Try these searches:
 - `love` - finds quotes about love in both languages
