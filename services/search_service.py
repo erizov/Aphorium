@@ -23,6 +23,7 @@ class SearchService:
         Args:
             db: Database session
         """
+        self.db = db
         self.quote_repo = QuoteRepository(db)
         self.translation_repo = TranslationRepository(db)
 
