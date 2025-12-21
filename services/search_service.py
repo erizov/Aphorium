@@ -6,10 +6,12 @@ Handles search logic with bilingual preference and ranking.
 
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from repositories.quote_repository import QuoteRepository
 from repositories.translation_repository import TranslationRepository
 from models import Quote
+from utils.translator import get_bilingual_search_queries
 from logger_config import logger
 
 
