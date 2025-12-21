@@ -6,60 +6,80 @@ Write-Host "Restarting Aphorium..." -ForegroundColor Cyan
 # Stop the servers and kill all related processes
 Write-Host "Stopping previous instances..." -ForegroundColor Yellow
 
-# Kill processes on ports 8000 and 3000
-$port8000 = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
-$port3000 = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
+# First, run stop script to clean up
+& ".\stop_app.ps1"
 
-if ($port8000) {
-    Write-Host "Killing process on port 8000 (PID: $port8000)..." -ForegroundColor Yellow
-    Stop-Process -Id $port8000 -Force -ErrorAction SilentlyContinue
-}
-
-if ($port3000) {
-    Write-Host "Killing process on port 3000 (PID: $port3000)..." -ForegroundColor Yellow
-    Stop-Process -Id $port3000 -Force -ErrorAction SilentlyContinue
-}
-
-# Also kill any processes from PID file
-if (Test-Path ".app_pids.txt") {
-    $pids = Get-Content ".app_pids.txt" | Where-Object { $_ -match '^\d+$' }
-    foreach ($pid in $pids) {
-        $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
-        if ($proc) {
-            Write-Host "Killing process PID: $pid..." -ForegroundColor Yellow
+# Kill processes on ports 8000, 3000, 3001, 3002 (in case frontend tried different ports)
+$ports = @(8000, 3000, 3001, 3002)
+foreach ($port in $ports) {
+    $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+    if ($connections) {
+        $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($pid in $pids) {
+            Write-Host "Killing process on port $port (PID: $pid)..." -ForegroundColor Yellow
             Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
         }
     }
 }
 
-# Kill any uvicorn or node processes related to this app
-Get-Process | Where-Object {
-    ($_.ProcessName -eq "python" -or $_.ProcessName -eq "node") -and
-    ($_.CommandLine -like "*uvicorn*" -or $_.CommandLine -like "*aphorium*" -or $_.Path -like "*aphorium*")
-} | Stop-Process -Force -ErrorAction SilentlyContinue
+# Kill all node processes (frontend)
+Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "Killing node process (PID: $($_.Id))..." -ForegroundColor Yellow
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
 
-# Wait for ports to be released
+# Kill all python processes running uvicorn
+Get-Process python -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)").CommandLine
+        if ($cmdLine -like "*uvicorn*" -or $cmdLine -like "*api.main*") {
+            Write-Host "Killing uvicorn process (PID: $($_.Id))..." -ForegroundColor Yellow
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        # If we can't check command line, kill it anyway if it's using our ports
+    }
+}
+
+# Wait for ports to be released with more aggressive checking
 Write-Host "Waiting for ports to be released..." -ForegroundColor Cyan
-$maxWait = 10
+$maxWait = 15
 $waited = 0
 while ($waited -lt $maxWait) {
-    $port8000InUse = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
-    $port3000InUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
+    $allPortsFree = $true
+    foreach ($port in @(8000, 3000)) {
+        $inUse = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+        if ($inUse) {
+            $allPortsFree = $false
+            # Try to kill again
+            $pids = $inUse | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($pid in $pids) {
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
     
-    if (-not $port8000InUse -and -not $port3000InUse) {
+    if ($allPortsFree) {
+        Write-Host "All ports are free!" -ForegroundColor Green
         break
     }
     
     Start-Sleep -Seconds 1
     $waited++
-    Write-Host "  Waiting... ($waited/$maxWait)" -ForegroundColor Gray
+    Write-Host "  Waiting for ports... ($waited/$maxWait)" -ForegroundColor Gray
 }
 
-if ($waited -ge $maxWait) {
-    Write-Host "Warning: Ports may still be in use. Continuing anyway..." -ForegroundColor Yellow
+# Final check - fail if ports still in use
+$port8000InUse = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
+$port3000InUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
+
+if ($port8000InUse -or $port3000InUse) {
+    Write-Host "ERROR: Ports are still in use after $maxWait seconds!" -ForegroundColor Red
+    Write-Host "Please manually kill processes and try again." -ForegroundColor Red
+    exit 1
 }
 
-# Wait a bit more
+# Wait a bit more to ensure ports are fully released
 Start-Sleep -Seconds 2
 
 # Close this terminal and start new one with servers

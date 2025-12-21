@@ -7,56 +7,63 @@ echo "Restarting Aphorium..."
 # Stop the servers and kill all related processes
 echo "Stopping previous instances..."
 
-# Kill processes on ports 8000 and 3000
-PORT8000_PID=$(lsof -ti:8000 2>/dev/null)
-PORT3000_PID=$(lsof -ti:3000 2>/dev/null)
+# First, run stop script to clean up
+./stop_app.sh
 
-if [ ! -z "$PORT8000_PID" ]; then
-    echo "Killing process on port 8000 (PID: $PORT8000_PID)..."
-    kill -9 $PORT8000_PID 2>/dev/null
-fi
+# Kill processes on ports 8000, 3000, 3001, 3002 (in case frontend tried different ports)
+PORTS=(8000 3000 3001 3002)
+for port in "${PORTS[@]}"; do
+    PID=$(lsof -ti:$port 2>/dev/null)
+    if [ ! -z "$PID" ]; then
+        echo "Killing process on port $port (PID: $PID)..."
+        kill -9 $PID 2>/dev/null
+    fi
+done
 
-if [ ! -z "$PORT3000_PID" ]; then
-    echo "Killing process on port 3000 (PID: $PORT3000_PID)..."
-    kill -9 $PORT3000_PID 2>/dev/null
-fi
+# Kill all node processes (frontend)
+pkill -9 node 2>/dev/null
 
-# Also kill any processes from PID file
-if [ -f ".app_pids.txt" ]; then
-    while read pid; do
-        if [ ! -z "$pid" ] && kill -0 $pid 2>/dev/null; then
-            echo "Killing process PID: $pid..."
-            kill -9 $pid 2>/dev/null
-        fi
-    done < .app_pids.txt
-fi
+# Kill all uvicorn/python processes
+pkill -9 -f "uvicorn.*api.main" 2>/dev/null
+pkill -9 -f "uvicorn.*aphorium" 2>/dev/null
 
-# Kill any uvicorn or node processes related to this app
-pkill -f "uvicorn.*aphorium" 2>/dev/null
-pkill -f "node.*aphorium" 2>/dev/null
-
-# Wait for ports to be released
+# Wait for ports to be released with more aggressive checking
 echo "Waiting for ports to be released..."
-MAX_WAIT=10
+MAX_WAIT=15
 WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
     PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
     PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
     
     if [ -z "$PORT8000_IN_USE" ] && [ -z "$PORT3000_IN_USE" ]; then
+        echo "All ports are free!"
         break
+    fi
+    
+    # Try to kill again if still in use
+    if [ ! -z "$PORT8000_IN_USE" ]; then
+        kill -9 $PORT8000_IN_USE 2>/dev/null
+    fi
+    if [ ! -z "$PORT3000_IN_USE" ]; then
+        kill -9 $PORT3000_IN_USE 2>/dev/null
     fi
     
     sleep 1
     WAITED=$((WAITED + 1))
-    echo "  Waiting... ($WAITED/$MAX_WAIT)"
+    echo "  Waiting for ports... ($WAITED/$MAX_WAIT)"
 done
 
-if [ $WAITED -ge $MAX_WAIT ]; then
-    echo "Warning: Ports may still be in use. Continuing anyway..."
+# Final check - fail if ports still in use
+PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
+PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
+
+if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
+    echo "ERROR: Ports are still in use after $MAX_WAIT seconds!"
+    echo "Please manually kill processes and try again."
+    exit 1
 fi
 
-# Wait a bit more
+# Wait a bit more to ensure ports are fully released
 sleep 2
 
 # Activate virtual environment
