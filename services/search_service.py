@@ -35,6 +35,9 @@ class SearchService:
     ) -> List[dict]:
         """
         Search quotes with bilingual preference.
+        
+        Always returns results from both languages unless explicitly filtered.
+        Ensures a balanced mix of English and Russian quotes.
 
         Args:
             query: Search query text
@@ -43,7 +46,7 @@ class SearchService:
             limit: Maximum number of results
 
         Returns:
-            List of quote dictionaries with metadata
+            List of quote dictionaries with metadata from both languages
         """
         try:
             # Determine language filter
@@ -51,15 +54,17 @@ class SearchService:
             if language and language != "both":
                 lang_filter = language
 
-            # Perform search
+            # Search with higher limit to get results from both languages
+            search_limit = limit * 3 if not lang_filter else limit * 2
             quotes = self.quote_repo.search(
                 query=query,
                 language=lang_filter,
-                limit=limit * 2 if prefer_bilingual else limit
+                limit=search_limit
             )
 
-            # Enrich with translation info
-            results = []
+            # Enrich with translation info and separate by language
+            en_quotes = []
+            ru_quotes = []
             bilingual_quotes = []
             regular_quotes = []
 
@@ -76,19 +81,71 @@ class SearchService:
                     quote_dict["has_translation"] = False
                     quote_dict["translation_count"] = 0
                     regular_quotes.append(quote_dict)
+                
+                # Separate by language for balanced results
+                if quote.language == "en":
+                    en_quotes.append(quote_dict)
+                elif quote.language == "ru":
+                    ru_quotes.append(quote_dict)
 
-            # Prioritize bilingual quotes if requested
-            if prefer_bilingual:
-                results = bilingual_quotes + regular_quotes
+            # Build results ensuring both languages are represented
+            results = []
+            
+            if not lang_filter:
+                # When searching both languages, ensure we get results from both
+                # Take bilingual quotes first, then alternate between languages
+                bilingual_added = 0
+                en_added = 0
+                ru_added = 0
+                max_per_lang = limit // 2  # Try to get roughly half from each language
+                
+                # Add bilingual quotes first
+                for quote in bilingual_quotes:
+                    if len(results) >= limit:
+                        break
+                    results.append(quote)
+                    bilingual_added += 1
+                
+                # Then add regular quotes, alternating between languages
+                en_idx = 0
+                ru_idx = 0
+                while len(results) < limit and (en_idx < len(en_quotes) or ru_idx < len(ru_quotes)):
+                    # Alternate between languages, but respect max_per_lang
+                    if ru_idx < len(ru_quotes) and ru_added < max_per_lang:
+                        # Add Russian quote
+                        if ru_quotes[ru_idx] not in results:
+                            results.append(ru_quotes[ru_idx])
+                            ru_added += 1
+                        ru_idx += 1
+                    elif en_idx < len(en_quotes) and en_added < max_per_lang:
+                        # Add English quote
+                        if en_quotes[en_idx] not in results:
+                            results.append(en_quotes[en_idx])
+                            en_added += 1
+                        en_idx += 1
+                    else:
+                        # If we've hit max for one language, add from the other
+                        if ru_idx < len(ru_quotes) and ru_quotes[ru_idx] not in results:
+                            results.append(ru_quotes[ru_idx])
+                            ru_idx += 1
+                        elif en_idx < len(en_quotes) and en_quotes[en_idx] not in results:
+                            results.append(en_quotes[en_idx])
+                            en_idx += 1
+                        else:
+                            break
             else:
-                results = bilingual_quotes + regular_quotes
-
-            # Limit results
-            results = results[:limit]
+                # Language filter specified - use original logic
+                if prefer_bilingual:
+                    results = bilingual_quotes + regular_quotes
+                else:
+                    results = bilingual_quotes + regular_quotes
+                results = results[:limit]
 
             logger.info(
                 f"Search '{query}' returned {len(results)} results "
-                f"({len(bilingual_quotes)} bilingual)"
+                f"(EN: {len([r for r in results if r['language'] == 'en'])}, "
+                f"RU: {len([r for r in results if r['language'] == 'ru'])}, "
+                f"bilingual: {len(bilingual_quotes)})"
             )
             return results
 
