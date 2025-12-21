@@ -14,7 +14,7 @@ echo "Stopping previous instances..."
 # 1. Processes on ports 8000, 3000, 3001, 3002, etc. (in case frontend tried different ports)
 echo "Killing processes on ports..."
 if command -v lsof >/dev/null 2>&1; then
-    # Check ports 8000 and 3000-3010
+    # Linux/Mac: use lsof
     for port in 8000 $(seq 3000 3010); do
         PID=$(lsof -ti:$port 2>/dev/null || echo "")
         if [ ! -z "$PID" ]; then
@@ -22,8 +22,22 @@ if command -v lsof >/dev/null 2>&1; then
             kill -9 $PID 2>/dev/null
         fi
     done
+elif command -v netstat >/dev/null 2>&1 && command -v taskkill >/dev/null 2>&1; then
+    # Windows: use netstat and taskkill
+    for port in 8000 $(seq 3000 3010); do
+        # Find PID using netstat
+        PID=$(netstat -ano 2>/dev/null | grep ":$port " | grep LISTENING | awk '{print $5}' | head -1)
+        if [ ! -z "$PID" ]; then
+            echo "  Killing process on port $port (PID: $PID)..."
+            taskkill /PID $PID /F >/dev/null 2>&1
+        fi
+    done
+elif command -v powershell >/dev/null 2>&1; then
+    # Windows: use PowerShell as fallback
+    echo "  Using PowerShell to kill processes on ports..."
+    powershell -Command "\$ports = @(8000) + (3000..3010); foreach (\$port in \$ports) { \$conns = Get-NetTCPConnection -LocalPort \$port -ErrorAction SilentlyContinue; if (\$conns) { \$pids = \$conns | Select-Object -ExpandProperty OwningProcess -Unique; foreach (\$pid in \$pids) { Stop-Process -Id \$pid -Force -ErrorAction SilentlyContinue } } }" 2>/dev/null
 else
-    echo "  lsof not available, skipping port-based process killing"
+    echo "  No port checking tools available (lsof/netstat/PowerShell), skipping port-based process killing"
 fi
 
 # 2. Kill all node processes (frontend)
@@ -89,11 +103,19 @@ echo "Checking if ports 8000 and 3000 are in use..."
 if command -v lsof >/dev/null 2>&1; then
     PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null || echo "")
     PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null || echo "")
+elif command -v netstat >/dev/null 2>&1; then
+    # Windows: use netstat
+    PORT8000_IN_USE=$(netstat -ano 2>/dev/null | grep ":8000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+    PORT3000_IN_USE=$(netstat -ano 2>/dev/null | grep ":3000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+elif command -v powershell >/dev/null 2>&1; then
+    # Windows: use PowerShell
+    PORT8000_IN_USE=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
+    PORT3000_IN_USE=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
 else
-    # lsof not available, assume ports are free
+    # No tools available, assume ports are free
     PORT8000_IN_USE=""
     PORT3000_IN_USE=""
-    echo "  lsof not available, assuming ports are free"
+    echo "  No port checking tools available, assuming ports are free"
 fi
 
 # Only wait if ports are actually in use
@@ -107,8 +129,14 @@ if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
         if command -v lsof >/dev/null 2>&1; then
             PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null || echo "")
             PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null || echo "")
+        elif command -v netstat >/dev/null 2>&1; then
+            PORT8000_IN_USE=$(netstat -ano 2>/dev/null | grep ":8000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+            PORT3000_IN_USE=$(netstat -ano 2>/dev/null | grep ":3000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+        elif command -v powershell >/dev/null 2>&1; then
+            PORT8000_IN_USE=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
+            PORT3000_IN_USE=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
         else
-            # lsof not available, assume ports are free and exit loop
+            # No tools available, assume ports are free and exit loop
             PORT8000_IN_USE=""
             PORT3000_IN_USE=""
         fi
@@ -131,13 +159,21 @@ if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
         
         # Also kill any remaining node/python processes using our ports
         if command -v lsof >/dev/null 2>&1; then
-            # Kill processes on our ports
             for port in 8000 3000; do
                 PID=$(lsof -ti:$port 2>/dev/null || echo "")
                 if [ ! -z "$PID" ]; then
                     kill -9 $PID 2>/dev/null
                 fi
             done
+        elif command -v netstat >/dev/null 2>&1 && command -v taskkill >/dev/null 2>&1; then
+            for port in 8000 3000; do
+                PID=$(netstat -ano 2>/dev/null | grep ":$port " | grep LISTENING | awk '{print $5}' | head -1)
+                if [ ! -z "$PID" ]; then
+                    taskkill /PID $PID /F >/dev/null 2>&1
+                fi
+            done
+        elif command -v powershell >/dev/null 2>&1; then
+            powershell -Command "foreach (\$port in @(8000, 3000)) { \$conns = Get-NetTCPConnection -LocalPort \$port -ErrorAction SilentlyContinue; if (\$conns) { \$pids = \$conns | Select-Object -ExpandProperty OwningProcess -Unique; foreach (\$pid in \$pids) { Stop-Process -Id \$pid -Force -ErrorAction SilentlyContinue } } }" 2>/dev/null
         fi
         
         sleep 1
@@ -182,6 +218,17 @@ if command -v lsof >/dev/null 2>&1; then
             sleep 0.5
         fi
     done
+elif command -v netstat >/dev/null 2>&1 && command -v taskkill >/dev/null 2>&1; then
+    for port in 8000 3000; do
+        PID=$(netstat -ano 2>/dev/null | grep ":$port " | grep LISTENING | awk '{print $5}' | head -1)
+        if [ ! -z "$PID" ]; then
+            echo "  Killing process on port $port (PID: $PID)..."
+            taskkill /PID $PID /F >/dev/null 2>&1
+            sleep 0.5
+        fi
+    done
+elif command -v powershell >/dev/null 2>&1; then
+    powershell -Command "foreach (\$port in @(8000, 3000)) { \$conns = Get-NetTCPConnection -LocalPort \$port -ErrorAction SilentlyContinue; if (\$conns) { \$pids = \$conns | Select-Object -ExpandProperty OwningProcess -Unique; foreach (\$pid in \$pids) { Write-Host \"  Killing process on port \$port (PID: \$pid)...\"; Stop-Process -Id \$pid -Force -ErrorAction SilentlyContinue } } }" 2>/dev/null
 fi
 
 # Kill all node processes one more time (in case something started)
@@ -205,25 +252,46 @@ echo "Verifying ports 8000 and 3000 are free..."
 if command -v lsof >/dev/null 2>&1; then
     PORT8000_FINAL=$(lsof -ti:8000 2>/dev/null || echo "")
     PORT3000_FINAL=$(lsof -ti:3000 2>/dev/null || echo "")
-    
-    if [ ! -z "$PORT8000_FINAL" ] || [ ! -z "$PORT3000_FINAL" ]; then
-        echo ""
-        echo "WARNING: Ports still in use after cleanup!"
-        echo "Port 8000: $([ ! -z "$PORT8000_FINAL" ] && echo "IN USE (PID: $PORT8000_FINAL)" || echo "FREE")"
-        echo "Port 3000: $([ ! -z "$PORT3000_FINAL" ] && echo "IN USE (PID: $PORT3000_FINAL)" || echo "FREE")"
-        echo "Attempting to kill again..."
-        [ ! -z "$PORT8000_FINAL" ] && kill -9 $PORT8000_FINAL 2>/dev/null
-        [ ! -z "$PORT3000_FINAL" ] && kill -9 $PORT3000_FINAL 2>/dev/null
-        sleep 1
-    else
-        echo "  Ports 8000 and 3000 are confirmed free!"
-    fi
+elif command -v netstat >/dev/null 2>&1; then
+    PORT8000_FINAL=$(netstat -ano 2>/dev/null | grep ":8000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+    PORT3000_FINAL=$(netstat -ano 2>/dev/null | grep ":3000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+elif command -v powershell >/dev/null 2>&1; then
+    PORT8000_FINAL=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
+    PORT3000_FINAL=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
 else
-    echo "  lsof not available, proceeding anyway..."
+    PORT8000_FINAL=""
+    PORT3000_FINAL=""
 fi
 
-# Activate virtual environment
-source venv/bin/activate
+if [ ! -z "$PORT8000_FINAL" ] || [ ! -z "$PORT3000_FINAL" ]; then
+    echo ""
+    echo "WARNING: Ports still in use after cleanup!"
+    echo "Port 8000: $([ ! -z "$PORT8000_FINAL" ] && echo "IN USE (PID: $PORT8000_FINAL)" || echo "FREE")"
+    echo "Port 3000: $([ ! -z "$PORT3000_FINAL" ] && echo "IN USE (PID: $PORT3000_FINAL)" || echo "FREE")"
+    echo "Attempting to kill again..."
+    if command -v taskkill >/dev/null 2>&1; then
+        [ ! -z "$PORT8000_FINAL" ] && taskkill /PID $PORT8000_FINAL /F >/dev/null 2>&1
+        [ ! -z "$PORT3000_FINAL" ] && taskkill /PID $PORT3000_FINAL /F >/dev/null 2>&1
+    elif command -v kill >/dev/null 2>&1; then
+        [ ! -z "$PORT8000_FINAL" ] && kill -9 $PORT8000_FINAL 2>/dev/null
+        [ ! -z "$PORT3000_FINAL" ] && kill -9 $PORT3000_FINAL 2>/dev/null
+    elif command -v powershell >/dev/null 2>&1; then
+        [ ! -z "$PORT8000_FINAL" ] && powershell -Command "Stop-Process -Id $PORT8000_FINAL -Force -ErrorAction SilentlyContinue" 2>/dev/null
+        [ ! -z "$PORT3000_FINAL" ] && powershell -Command "Stop-Process -Id $PORT3000_FINAL -Force -ErrorAction SilentlyContinue" 2>/dev/null
+    fi
+    sleep 1
+else
+    echo "  Ports 8000 and 3000 are confirmed free!"
+fi
+
+# Activate virtual environment (check both Linux and Windows paths)
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+elif [ -f "venv/Scripts/activate" ]; then
+    source venv/Scripts/activate
+else
+    echo "WARNING: Virtual environment not found. Trying to continue anyway..."
+fi
 
 # Create logs directory
 mkdir -p logs
@@ -241,16 +309,40 @@ echo "Starting frontend dev server..."
 # Final check: make absolutely sure port 3000 is free
 if command -v lsof >/dev/null 2>&1; then
     PORT3000_CHECK=$(lsof -ti:3000 2>/dev/null || echo "")
-    if [ ! -z "$PORT3000_CHECK" ]; then
-        echo "  WARNING: Port 3000 still in use (PID: $PORT3000_CHECK), killing..."
+elif command -v netstat >/dev/null 2>&1; then
+    PORT3000_CHECK=$(netstat -ano 2>/dev/null | grep ":3000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+elif command -v powershell >/dev/null 2>&1; then
+    PORT3000_CHECK=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
+else
+    PORT3000_CHECK=""
+fi
+
+if [ ! -z "$PORT3000_CHECK" ]; then
+    echo "  WARNING: Port 3000 still in use (PID: $PORT3000_CHECK), killing..."
+    if command -v taskkill >/dev/null 2>&1; then
+        taskkill /PID $PORT3000_CHECK /F >/dev/null 2>&1
+    elif command -v kill >/dev/null 2>&1; then
         kill -9 $PORT3000_CHECK 2>/dev/null
-        sleep 1
+    elif command -v powershell >/dev/null 2>&1; then
+        powershell -Command "Stop-Process -Id $PORT3000_CHECK -Force -ErrorAction SilentlyContinue" 2>/dev/null
+    fi
+    sleep 1
+    
+    # Check again
+    if command -v lsof >/dev/null 2>&1; then
         PORT3000_CHECK=$(lsof -ti:3000 2>/dev/null || echo "")
-        if [ ! -z "$PORT3000_CHECK" ]; then
-            echo "  ERROR: Port 3000 still in use after kill attempt!"
-            echo "  Please manually kill process $PORT3000_CHECK and try again"
-            exit 1
-        fi
+    elif command -v netstat >/dev/null 2>&1; then
+        PORT3000_CHECK=$(netstat -ano 2>/dev/null | grep ":3000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+    elif command -v powershell >/dev/null 2>&1; then
+        PORT3000_CHECK=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
+    else
+        PORT3000_CHECK=""
+    fi
+    
+    if [ ! -z "$PORT3000_CHECK" ]; then
+        echo "  ERROR: Port 3000 still in use after kill attempt (PID: $PORT3000_CHECK)!"
+        echo "  Please manually kill process $PORT3000_CHECK and try again"
+        exit 1
     fi
 fi
 
