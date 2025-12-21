@@ -16,18 +16,26 @@ if [ -f "$PID_FILE" ]; then
     rm -f $PID_FILE
 fi
 
-# Find and kill uvicorn processes
-UVICORN_PID=$(pgrep -f "uvicorn.*api.main:app" || pgrep -f "api.main:app")
-if [ -n "$UVICORN_PID" ]; then
-    echo "Stopping uvicorn process $UVICORN_PID..."
-    kill $UVICORN_PID 2>/dev/null
+# Find and kill uvicorn processes using ps (works on both Linux and Windows with WSL/Git Bash)
+if command -v ps >/dev/null 2>&1; then
+    UVICORN_PIDS=$(ps aux 2>/dev/null | grep -E "[u]vicorn.*api.main" | awk '{print $2}' || ps -ef 2>/dev/null | grep -E "[u]vicorn.*api.main" | awk '{print $2}' || echo "")
+    if [ -n "$UVICORN_PIDS" ]; then
+        for pid in $UVICORN_PIDS; do
+            echo "Stopping uvicorn process $pid..."
+            kill $pid 2>/dev/null
+        done
+    fi
 fi
 
 # Find and kill node/vite processes (frontend)
-NODE_PID=$(pgrep -f "vite" || pgrep -f "npm.*dev")
-if [ -n "$NODE_PID" ]; then
-    echo "Stopping node process $NODE_PID..."
-    kill $NODE_PID 2>/dev/null
+if command -v ps >/dev/null 2>&1; then
+    NODE_PIDS=$(ps aux 2>/dev/null | grep -E "[n]ode.*vite|[n]pm.*dev" | awk '{print $2}' || ps -ef 2>/dev/null | grep -E "[n]ode.*vite|[n]pm.*dev" | awk '{print $2}' || echo "")
+    if [ -n "$NODE_PIDS" ]; then
+        for pid in $NODE_PIDS; do
+            echo "Stopping node process $pid..."
+            kill $pid 2>/dev/null
+        done
+    fi
 fi
 
 # Kill tail and sed processes (from log monitoring)
@@ -52,8 +60,10 @@ if [ -n "$FRONTEND_PID" ]; then
     kill $FRONTEND_PID 2>/dev/null
 fi
 
-# Fallback: pkill
-pkill -f "uvicorn.*api.main:app" 2>/dev/null
-pkill -f "vite" 2>/dev/null
+# Fallback: kill by process name if pkill is available
+if command -v pkill >/dev/null 2>&1; then
+    pkill -f "uvicorn.*api.main:app" 2>/dev/null
+    pkill -f "vite" 2>/dev/null
+fi
 
 echo "Servers stopped."

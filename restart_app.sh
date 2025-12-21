@@ -23,18 +23,49 @@ done
 
 # 2. Kill all node processes (frontend)
 echo "Killing all node processes..."
-pkill -9 node 2>/dev/null
+if command -v pkill >/dev/null 2>&1; then
+    pkill -9 node 2>/dev/null
+else
+    # Fallback: use ps and kill
+    if command -v ps >/dev/null 2>&1; then
+        NODE_PIDS=$(ps aux 2>/dev/null | grep -E "[n]ode" | awk '{print $2}' || ps -ef 2>/dev/null | grep -E "[n]ode" | awk '{print $2}' || echo "")
+        for pid in $NODE_PIDS; do
+            kill -9 $pid 2>/dev/null
+        done
+    fi
+fi
 
 # 3. Kill all uvicorn/python processes
 echo "Killing uvicorn/python processes..."
-pkill -9 -f "uvicorn.*api.main" 2>/dev/null
-pkill -9 -f "uvicorn.*aphorium" 2>/dev/null
-pkill -9 -f "python.*uvicorn" 2>/dev/null
+if command -v pkill >/dev/null 2>&1; then
+    pkill -9 -f "uvicorn.*api.main" 2>/dev/null
+    pkill -9 -f "uvicorn.*aphorium" 2>/dev/null
+    pkill -9 -f "python.*uvicorn" 2>/dev/null
+else
+    # Fallback: use ps and kill
+    if command -v ps >/dev/null 2>&1; then
+        PYTHON_PIDS=$(ps aux 2>/dev/null | grep -E "[p]ython.*uvicorn|[u]vicorn" | awk '{print $2}' || ps -ef 2>/dev/null | grep -E "[p]ython.*uvicorn|[u]vicorn" | awk '{print $2}' || echo "")
+        for pid in $PYTHON_PIDS; do
+            kill -9 $pid 2>/dev/null
+        done
+    fi
+fi
 
 # 4. Kill tail and sed processes (from log monitoring)
 echo "Killing tail/sed processes..."
-pkill -9 tail 2>/dev/null
-pkill -9 sed 2>/dev/null
+if command -v pkill >/dev/null 2>&1; then
+    pkill -9 tail 2>/dev/null
+    pkill -9 sed 2>/dev/null
+else
+    # Fallback: use ps and kill
+    if command -v ps >/dev/null 2>&1; then
+        TAIL_PIDS=$(ps aux 2>/dev/null | grep -E "[t]ail" | awk '{print $2}' || ps -ef 2>/dev/null | grep -E "[t]ail" | awk '{print $2}' || echo "")
+        SED_PIDS=$(ps aux 2>/dev/null | grep -E "[s]ed" | awk '{print $2}' || ps -ef 2>/dev/null | grep -E "[s]ed" | awk '{print $2}' || echo "")
+        for pid in $TAIL_PIDS $SED_PIDS; do
+            kill -9 $pid 2>/dev/null
+        done
+    fi
+fi
 
 # 5. Kill any processes from PID file
 if [ -f ".app_pids.txt" ]; then
@@ -74,10 +105,20 @@ while [ $WAITED -lt $MAX_WAIT ]; do
     fi
     
     # Also kill any remaining node/python processes
-    pkill -9 node 2>/dev/null
-    pkill -9 -f "uvicorn.*api.main" 2>/dev/null
-    pkill -9 tail 2>/dev/null
-    pkill -9 sed 2>/dev/null
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -9 node 2>/dev/null
+        pkill -9 -f "uvicorn.*api.main" 2>/dev/null
+        pkill -9 tail 2>/dev/null
+        pkill -9 sed 2>/dev/null
+    else
+        # Fallback: kill by port using lsof
+        for port in 8000 3000; do
+            PID=$(lsof -ti:$port 2>/dev/null)
+            if [ ! -z "$PID" ]; then
+                kill -9 $PID 2>/dev/null
+            fi
+        done
+    fi
     
     sleep 1
     WAITED=$((WAITED + 1))
