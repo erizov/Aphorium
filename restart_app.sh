@@ -171,6 +171,57 @@ fi
 echo "Waiting 2 seconds to ensure ports are fully released..."
 sleep 2
 
+# Final aggressive cleanup - kill any remaining processes on our ports
+echo "Final cleanup: killing any remaining processes on ports 8000 and 3000..."
+if command -v lsof >/dev/null 2>&1; then
+    for port in 8000 3000; do
+        PID=$(lsof -ti:$port 2>/dev/null || echo "")
+        if [ ! -z "$PID" ]; then
+            echo "  Killing process on port $port (PID: $PID)..."
+            kill -9 $PID 2>/dev/null
+            sleep 0.5
+        fi
+    done
+fi
+
+# Kill all node processes one more time (in case something started)
+echo "Killing all node processes one final time..."
+if command -v pkill >/dev/null 2>&1; then
+    pkill -9 node 2>/dev/null
+else
+    if command -v ps >/dev/null 2>&1; then
+        NODE_PIDS=$(ps aux 2>/dev/null | grep -E "[n]ode" | awk '{print $2}' || ps -ef 2>/dev/null | grep -E "[n]ode" | awk '{print $2}' || echo "")
+        for pid in $NODE_PIDS; do
+            kill -9 $pid 2>/dev/null
+        done
+    fi
+fi
+
+# Wait one more second
+sleep 1
+
+# Final verification - ports must be free
+echo "Verifying ports 8000 and 3000 are free..."
+if command -v lsof >/dev/null 2>&1; then
+    PORT8000_FINAL=$(lsof -ti:8000 2>/dev/null || echo "")
+    PORT3000_FINAL=$(lsof -ti:3000 2>/dev/null || echo "")
+    
+    if [ ! -z "$PORT8000_FINAL" ] || [ ! -z "$PORT3000_FINAL" ]; then
+        echo ""
+        echo "WARNING: Ports still in use after cleanup!"
+        echo "Port 8000: $([ ! -z "$PORT8000_FINAL" ] && echo "IN USE (PID: $PORT8000_FINAL)" || echo "FREE")"
+        echo "Port 3000: $([ ! -z "$PORT3000_FINAL" ] && echo "IN USE (PID: $PORT3000_FINAL)" || echo "FREE")"
+        echo "Attempting to kill again..."
+        [ ! -z "$PORT8000_FINAL" ] && kill -9 $PORT8000_FINAL 2>/dev/null
+        [ ! -z "$PORT3000_FINAL" ] && kill -9 $PORT3000_FINAL 2>/dev/null
+        sleep 1
+    else
+        echo "  Ports 8000 and 3000 are confirmed free!"
+    fi
+else
+    echo "  lsof not available, proceeding anyway..."
+fi
+
 # Activate virtual environment
 source venv/bin/activate
 

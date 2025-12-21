@@ -178,6 +178,63 @@ if ($port8000InUse -or $port3000InUse) {
 Write-Host "Waiting 2 seconds to ensure ports are fully released..." -ForegroundColor Green
 Start-Sleep -Seconds 2
 
+# Final aggressive cleanup - kill any remaining processes on our ports
+Write-Host "Final cleanup: killing any remaining processes on ports 8000 and 3000..." -ForegroundColor Yellow
+$portsToCheck = @(8000, 3000)
+foreach ($port in $portsToCheck) {
+    try {
+        $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+        if ($connections) {
+            $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($pid in $pids) {
+                Write-Host "  Killing process on port $port (PID: $pid)..." -ForegroundColor Yellow
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+            Start-Sleep -Milliseconds 500
+        }
+    } catch {
+        # Port check failed, continue
+    }
+}
+
+# Kill all node processes one more time (in case something started)
+Write-Host "Killing all node processes one final time..." -ForegroundColor Yellow
+Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "  Killing node process (PID: $($_.Id))..." -ForegroundColor Yellow
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+
+# Wait one more second
+Start-Sleep -Seconds 1
+
+# Final verification - ports must be free
+Write-Host "Verifying ports 8000 and 3000 are free..." -ForegroundColor Cyan
+$port8000Final = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
+$port3000Final = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
+
+if ($port8000Final -or $port3000Final) {
+    Write-Host ""
+    Write-Host "WARNING: Ports still in use after cleanup!" -ForegroundColor Yellow
+    Write-Host "Port 8000: $(if ($port8000Final) { "IN USE (PID: $($port8000Final.OwningProcess))" } else { "FREE" })" -ForegroundColor Yellow
+    Write-Host "Port 3000: $(if ($port3000Final) { "IN USE (PID: $($port3000Final.OwningProcess))" } else { "FREE" })" -ForegroundColor Yellow
+    Write-Host "Attempting to kill again..." -ForegroundColor Yellow
+    if ($port8000Final) {
+        $pids = $port8000Final | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($pid in $pids) {
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if ($port3000Final) {
+        $pids = $port3000Final | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($pid in $pids) {
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Start-Sleep -Seconds 1
+} else {
+    Write-Host "  Ports 8000 and 3000 are confirmed free!" -ForegroundColor Green
+}
+
 # Close this terminal and start new one with servers
 Write-Host "Starting new terminal with servers..." -ForegroundColor Green
 
