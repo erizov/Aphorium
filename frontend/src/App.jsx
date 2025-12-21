@@ -169,7 +169,7 @@ function App() {
 
           <Grid container spacing={3}>
             {results.map((pair, index) => (
-              <Grid item xs={12} key={pair.english?.id || pair.russian?.id || index}>
+              <Grid item xs={12} sm={6} md={4} key={pair.english?.id || pair.russian?.id || index}>
                 <Card
                   sx={{
                     borderLeft: (pair.english && pair.russian) ? '4px solid #27ae60' : '4px solid #667eea',
