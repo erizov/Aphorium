@@ -79,68 +79,73 @@ if [ -f ".app_pids.txt" ]; then
     rm -f .app_pids.txt
 fi
 
-# Wait for ports 8000 and 3000 to be released - NEVER use different ports
-echo "Waiting for ports 8000 and 3000 to be released..."
-echo "IMPORTANT: Will wait until ports are free - will NOT use different ports!"
-MAX_WAIT=30
-WAITED=0
-while [ $WAITED -lt $MAX_WAIT ]; do
-    PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
-    PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
-    
-    if [ -z "$PORT8000_IN_USE" ] && [ -z "$PORT3000_IN_USE" ]; then
-        echo "All ports are free!"
-        break
-    fi
-    
-    # If ports still in use, try to kill processes again
-    if [ ! -z "$PORT8000_IN_USE" ]; then
-        echo "  Port 8000 still in use, killing PID: $PORT8000_IN_USE..."
-        kill -9 $PORT8000_IN_USE 2>/dev/null
-    fi
-    
-    if [ ! -z "$PORT3000_IN_USE" ]; then
-        echo "  Port 3000 still in use, killing PID: $PORT3000_IN_USE..."
-        kill -9 $PORT3000_IN_USE 2>/dev/null
-    fi
-    
-    # Also kill any remaining node/python processes
-    if command -v pkill >/dev/null 2>&1; then
-        pkill -9 node 2>/dev/null
-        pkill -9 -f "uvicorn.*api.main" 2>/dev/null
-        pkill -9 tail 2>/dev/null
-        pkill -9 sed 2>/dev/null
-    else
-        # Fallback: kill by port using lsof
-        for port in 8000 3000; do
-            PID=$(lsof -ti:$port 2>/dev/null)
-            if [ ! -z "$PID" ]; then
-                kill -9 $PID 2>/dev/null
-            fi
-        done
-    fi
-    
-    sleep 1
-    WAITED=$((WAITED + 1))
-    echo "  Waiting for ports 8000 and 3000... ($WAITED/$MAX_WAIT)"
-done
-
-# Final check - fail if ports still in use
+# Check if ports 8000 and 3000 are in use - only wait if they are
+echo "Checking if ports 8000 and 3000 are in use..."
 PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
 PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
 
+# Only wait if ports are actually in use
 if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
-    echo ""
-    echo "ERROR: Ports 8000 and/or 3000 are still in use after $MAX_WAIT seconds!"
-    echo "Port 8000 in use: $([ ! -z "$PORT8000_IN_USE" ] && echo "YES (PID: $PORT8000_IN_USE)" || echo "NO")"
-    echo "Port 3000 in use: $([ ! -z "$PORT3000_IN_USE" ] && echo "YES (PID: $PORT3000_IN_USE)" || echo "NO")"
-    echo "Please manually kill processes and try again."
-    echo "You can use: lsof -ti:8000,3000 | xargs kill -9"
-    exit 1
+    echo "Ports are in use. Waiting for release..."
+    echo "IMPORTANT: Will wait until ports are free - will NOT use different ports!"
+    MAX_WAIT=30
+    WAITED=0
+    
+    while [ $WAITED -lt $MAX_WAIT ]; do
+        PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
+        PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
+        
+        if [ -z "$PORT8000_IN_USE" ] && [ -z "$PORT3000_IN_USE" ]; then
+            echo "All ports are free!"
+            break
+        fi
+        
+        # If ports still in use, try to kill processes again
+        if [ ! -z "$PORT8000_IN_USE" ]; then
+            echo "  Port 8000 still in use, killing PID: $PORT8000_IN_USE..."
+            kill -9 $PORT8000_IN_USE 2>/dev/null
+        fi
+        
+        if [ ! -z "$PORT3000_IN_USE" ]; then
+            echo "  Port 3000 still in use, killing PID: $PORT3000_IN_USE..."
+            kill -9 $PORT3000_IN_USE 2>/dev/null
+        fi
+        
+        # Also kill any remaining node/python processes using our ports
+        if command -v lsof >/dev/null 2>&1; then
+            # Kill node processes on our ports
+            for port in 8000 3000; do
+                PID=$(lsof -ti:$port 2>/dev/null)
+                if [ ! -z "$PID" ]; then
+                    kill -9 $PID 2>/dev/null
+                fi
+            done
+        fi
+        
+        sleep 1
+        WAITED=$((WAITED + 1))
+        echo "  Waiting for ports 8000 and 3000... ($WAITED/$MAX_WAIT)"
+    done
+    
+    # Final check - fail if ports still in use
+    PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
+    PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
+    
+    if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
+        echo ""
+        echo "ERROR: Ports 8000 and/or 3000 are still in use after $MAX_WAIT seconds!"
+        echo "Port 8000 in use: $([ ! -z "$PORT8000_IN_USE" ] && echo "YES (PID: $PORT8000_IN_USE)" || echo "NO")"
+        echo "Port 3000 in use: $([ ! -z "$PORT3000_IN_USE" ] && echo "YES (PID: $PORT3000_IN_USE)" || echo "NO")"
+        echo "Please manually kill processes and try again."
+        echo "You can use: lsof -ti:8000,3000 | xargs kill -9"
+        exit 1
+    fi
+else
+    echo "Ports 8000 and 3000 are already free!"
 fi
 
 # Wait a bit more to ensure ports are fully released
-echo "Ports confirmed free. Waiting 2 more seconds..."
+echo "Waiting 2 seconds to ensure ports are fully released..."
 sleep 2
 
 # Activate virtual environment

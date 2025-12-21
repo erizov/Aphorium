@@ -84,69 +84,88 @@ if (Test-Path ".app_pids.txt") {
 }
 
 # Wait for ports 8000 and 3000 to be released - NEVER use different ports
-Write-Host "Waiting for ports 8000 and 3000 to be released..." -ForegroundColor Cyan
-Write-Host "IMPORTANT: Will wait until ports are free - will NOT use different ports!" -ForegroundColor Yellow
-$maxWait = 30
-$waited = 0
-while ($waited -lt $maxWait) {
-    $port8000InUse = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
-    $port3000InUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
-    
-    if (-not $port8000InUse -and -not $port3000InUse) {
-        Write-Host "All ports are free!" -ForegroundColor Green
-        break
-    }
-    
-    # If ports still in use, try to kill processes again
-    if ($port8000InUse) {
-        $pids = $port8000InUse | Select-Object -ExpandProperty OwningProcess -Unique
-        foreach ($pid in $pids) {
-            Write-Host "  Port 8000 still in use, killing PID: $pid..." -ForegroundColor Yellow
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        }
-    }
-    
-    if ($port3000InUse) {
-        $pids = $port3000InUse | Select-Object -ExpandProperty OwningProcess -Unique
-        foreach ($pid in $pids) {
-            Write-Host "  Port 3000 still in use, killing PID: $pid..." -ForegroundColor Yellow
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        }
-    }
-    
-    # Also kill any remaining node/python processes
-    Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Get-Process python -ErrorAction SilentlyContinue | Where-Object {
-        try {
-            $conns = Get-NetTCPConnection -OwningProcess $_.Id -ErrorAction SilentlyContinue
-            if ($conns) {
-                $ports = $conns | Select-Object -ExpandProperty LocalPort
-                $ports -contains 8000 -or $ports -contains 3000
-            } else { $false }
-        } catch { $false }
-    } | Stop-Process -Force -ErrorAction SilentlyContinue
-    
-    Start-Sleep -Seconds 1
-    $waited++
-    Write-Host "  Waiting for ports 8000 and 3000... ($waited/$maxWait)" -ForegroundColor Gray
-}
-
-# Final check - fail if ports still in use
+Write-Host "Checking if ports 8000 and 3000 are in use..." -ForegroundColor Cyan
 $port8000InUse = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
 $port3000InUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
 
+# Only wait if ports are actually in use
 if ($port8000InUse -or $port3000InUse) {
-    Write-Host "" -ForegroundColor Red
-    Write-Host "ERROR: Ports 8000 and/or 3000 are still in use after $maxWait seconds!" -ForegroundColor Red
-    Write-Host "Port 8000 in use: $($port8000InUse -ne $null)" -ForegroundColor Red
-    Write-Host "Port 3000 in use: $($port3000InUse -ne $null)" -ForegroundColor Red
-    Write-Host "Please manually kill processes and try again." -ForegroundColor Red
-    Write-Host "You can use: Get-NetTCPConnection -LocalPort 8000,3000 | Stop-Process -Id {OwningProcess}" -ForegroundColor Yellow
-    exit 1
+    Write-Host "Ports are in use. Waiting for release..." -ForegroundColor Yellow
+    Write-Host "IMPORTANT: Will wait until ports are free - will NOT use different ports!" -ForegroundColor Yellow
+    $maxWait = 30
+    $waited = 0
+    
+    while ($waited -lt $maxWait) {
+        $port8000InUse = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
+        $port3000InUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
+        
+        if (-not $port8000InUse -and -not $port3000InUse) {
+            Write-Host "All ports are free!" -ForegroundColor Green
+            break
+        }
+        
+        # If ports still in use, try to kill processes again
+        if ($port8000InUse) {
+            $pids = $port8000InUse | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($pid in $pids) {
+                Write-Host "  Port 8000 still in use, killing PID: $pid..." -ForegroundColor Yellow
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        if ($port3000InUse) {
+            $pids = $port3000InUse | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($pid in $pids) {
+                Write-Host "  Port 3000 still in use, killing PID: $pid..." -ForegroundColor Yellow
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        # Also kill any remaining node/python processes using our ports
+        Get-Process node -ErrorAction SilentlyContinue | Where-Object {
+            try {
+                $conns = Get-NetTCPConnection -OwningProcess $_.Id -ErrorAction SilentlyContinue
+                if ($conns) {
+                    $ports = $conns | Select-Object -ExpandProperty LocalPort
+                    $ports -contains 8000 -or $ports -contains 3000
+                } else { $false }
+            } catch { $false }
+        } | Stop-Process -Force -ErrorAction SilentlyContinue
+        
+        Get-Process python -ErrorAction SilentlyContinue | Where-Object {
+            try {
+                $conns = Get-NetTCPConnection -OwningProcess $_.Id -ErrorAction SilentlyContinue
+                if ($conns) {
+                    $ports = $conns | Select-Object -ExpandProperty LocalPort
+                    $ports -contains 8000 -or $ports -contains 3000
+                } else { $false }
+            } catch { $false }
+        } | Stop-Process -Force -ErrorAction SilentlyContinue
+        
+        Start-Sleep -Seconds 1
+        $waited++
+        Write-Host "  Waiting for ports 8000 and 3000... ($waited/$maxWait)" -ForegroundColor Gray
+    }
+    
+    # Final check - fail if ports still in use
+    $port8000InUse = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
+    $port3000InUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
+    
+    if ($port8000InUse -or $port3000InUse) {
+        Write-Host "" -ForegroundColor Red
+        Write-Host "ERROR: Ports 8000 and/or 3000 are still in use after $maxWait seconds!" -ForegroundColor Red
+        Write-Host "Port 8000 in use: $($port8000InUse -ne $null)" -ForegroundColor Red
+        Write-Host "Port 3000 in use: $($port3000InUse -ne $null)" -ForegroundColor Red
+        Write-Host "Please manually kill processes and try again." -ForegroundColor Red
+        Write-Host "You can use: Get-NetTCPConnection -LocalPort 8000,3000 | Stop-Process -Id {OwningProcess}" -ForegroundColor Yellow
+        exit 1
+    }
+} else {
+    Write-Host "Ports 8000 and 3000 are already free!" -ForegroundColor Green
 }
 
 # Wait a bit more to ensure ports are fully released
-Write-Host "Ports confirmed free. Waiting 2 more seconds..." -ForegroundColor Green
+Write-Host "Waiting 2 seconds to ensure ports are fully released..." -ForegroundColor Green
 Start-Sleep -Seconds 2
 
 # Close this terminal and start new one with servers
