@@ -157,6 +157,28 @@ class QuoteTranslation(Base):
                f"confidence={self.confidence})>"
 
 
+class WordTranslation(Base):
+    """Translation dictionary for common words."""
+    
+    __tablename__ = "word_translations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    word_en = Column(String(255), nullable=False, index=True)
+    word_ru = Column(String(255), nullable=False, index=True)
+    frequency_en = Column(Integer, default=0)  # Word frequency in English
+    frequency_ru = Column(Integer, default=0)  # Word frequency in Russian
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    
+    # Indexes for fast lookup
+    __table_args__ = (
+        Index('idx_word_en', 'word_en'),
+        Index('idx_word_ru', 'word_ru'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<WordTranslation(en='{self.word_en}', ru='{self.word_ru}')>"
+
+
 class SourceMetadata(Base):
     """Metadata for scraped sources."""
 

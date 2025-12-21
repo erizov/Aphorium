@@ -56,7 +56,8 @@ class SearchService:
                 lang_filter = language
 
             # Get both original and translated query for bilingual search
-            original_query, translated_query = get_bilingual_search_queries(query)
+            # Pass database session for translation lookup
+            original_query, translated_query = get_bilingual_search_queries(query, self.db)
             
             # Search with both queries to find results in both languages
             # Search with higher limit to get results from both languages
