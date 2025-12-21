@@ -93,46 +93,61 @@ class SearchService:
             
             if not lang_filter:
                 # When searching both languages, ensure we get results from both
-                # Take bilingual quotes first, then alternate between languages
-                bilingual_added = 0
-                en_added = 0
-                ru_added = 0
-                max_per_lang = limit // 2  # Try to get roughly half from each language
+                # Strategy: Get bilingual quotes first, then mix EN and RU quotes
                 
-                # Add bilingual quotes first
+                # Step 1: Add bilingual quotes (these are in both languages)
                 for quote in bilingual_quotes:
                     if len(results) >= limit:
                         break
-                    results.append(quote)
-                    bilingual_added += 1
+                    if quote not in results:
+                        results.append(quote)
                 
-                # Then add regular quotes, alternating between languages
-                en_idx = 0
-                ru_idx = 0
-                while len(results) < limit and (en_idx < len(en_quotes) or ru_idx < len(ru_quotes)):
-                    # Alternate between languages, but respect max_per_lang
-                    if ru_idx < len(ru_quotes) and ru_added < max_per_lang:
-                        # Add Russian quote
-                        if ru_quotes[ru_idx] not in results:
-                            results.append(ru_quotes[ru_idx])
-                            ru_added += 1
-                        ru_idx += 1
-                    elif en_idx < len(en_quotes) and en_added < max_per_lang:
-                        # Add English quote
-                        if en_quotes[en_idx] not in results:
-                            results.append(en_quotes[en_idx])
-                            en_added += 1
-                        en_idx += 1
-                    else:
-                        # If we've hit max for one language, add from the other
-                        if ru_idx < len(ru_quotes) and ru_quotes[ru_idx] not in results:
-                            results.append(ru_quotes[ru_idx])
-                            ru_idx += 1
-                        elif en_idx < len(en_quotes) and en_quotes[en_idx] not in results:
-                            results.append(en_quotes[en_idx])
-                            en_idx += 1
-                        else:
+                # Step 2: If we don't have enough results, add from both languages
+                # Try to get a balanced mix
+                en_matched = [q for q in en_quotes if q not in results]
+                ru_matched = [q for q in ru_quotes if q not in results]
+                
+                # Calculate how many from each language we should add
+                remaining = limit - len(results)
+                if remaining > 0:
+                    # Try to get roughly equal numbers from each language
+                    # But if one language has fewer matches, use what's available
+                    target_per_lang = max(1, remaining // 2)
+                    
+                    # Add Russian quotes first (since we have fewer of them)
+                    for quote in ru_matched[:target_per_lang]:
+                        if len(results) >= limit:
                             break
+                        if quote not in results:
+                            results.append(quote)
+                    
+                    # Then add English quotes
+                    for quote in en_matched[:remaining]:
+                        if len(results) >= limit:
+                            break
+                        if quote not in results:
+                            results.append(quote)
+                
+                # Step 3: If we still don't have Russian results and have room,
+                # add some Russian quotes to ensure bilingual results
+                ru_count = len([r for r in results if r['language'] == 'ru'])
+                if ru_count == 0 and len(results) < limit:
+                    # Get some random Russian quotes to show variety
+                    ru_quotes_models = self.db.query(Quote).filter(
+                        Quote.language == 'ru'
+                    ).order_by(func.random()).limit(
+                        min(3, limit - len(results))
+                    ).all()
+                    
+                    for quote in ru_quotes_models:
+                        if len(results) >= limit:
+                            break
+                        quote_dict = self._quote_to_dict(quote)
+                        quote_dict["has_translation"] = False
+                        quote_dict["translation_count"] = 0
+                        # Check if already in results by ID
+                        if not any(r['id'] == quote_dict['id'] for r in results):
+                            results.append(quote_dict)
             else:
                 # Language filter specified - use original logic
                 if prefer_bilingual:
