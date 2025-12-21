@@ -80,3 +80,11 @@ def sample_quote(db_session, sample_author, sample_source):
     db_session.refresh(quote)
     return quote
 
+
+# Mark e2e tests
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers", "e2e: marks tests as end-to-end (deselect with '-m \"not e2e\"')"
+    )
+
