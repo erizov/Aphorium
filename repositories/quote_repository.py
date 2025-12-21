@@ -7,6 +7,7 @@ Handles CRUD operations and search queries for quotes.
 from typing import List, Optional
 from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session, aliased
+from sqlalchemy.sql import func as sql_func
 
 from models import Quote, Author, Source, QuoteTranslation
 from repositories.search_strategy import get_search_strategy
@@ -49,10 +50,11 @@ class QuoteRepository:
             normalized_text = text.strip().lower()
             
             # Check for existing quote with same text, author, and language
+            # Use database-specific functions for text comparison
             existing = (
                 self.db.query(Quote)
                 .filter(
-                    func.lower(func.trim(Quote.text)) == normalized_text,
+                    func.lower(func.ltrim(func.rtrim(Quote.text))) == normalized_text,
                     Quote.author_id == author_id,
                     Quote.language == language
                 )
