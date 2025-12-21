@@ -159,155 +159,8 @@ class SearchService:
                 if len(results) >= limit:
                     break
 
-            # Enrich with translation info and separate by language
-            en_quotes = []
-            ru_quotes = []
-            bilingual_quotes = []
-            regular_quotes = []
-
-            for quote in quotes:
-                quote_dict = self._quote_to_dict(quote)
-
-                # Check if quote has translations
-                translations = self.translation_repo.get_by_quote_id(quote.id)
-                if translations:
-                    quote_dict["has_translation"] = True
-                    quote_dict["translation_count"] = len(translations)
-                    bilingual_quotes.append(quote_dict)
-                else:
-                    quote_dict["has_translation"] = False
-                    quote_dict["translation_count"] = 0
-                    regular_quotes.append(quote_dict)
-                
-                # Separate by language for balanced results
-                if quote.language == "en":
-                    en_quotes.append(quote_dict)
-                elif quote.language == "ru":
-                    ru_quotes.append(quote_dict)
-
-            # Build results ensuring both languages are represented
-            results = []
-            
-            if not lang_filter:
-                # When searching both languages, ensure we get results from both
-                # Strategy: Get bilingual quotes first, then mix EN and RU quotes
-                
-                # Step 1: Add bilingual quotes (these are in both languages)
-                for quote in bilingual_quotes:
-                    if len(results) >= limit:
-                        break
-                    if quote not in results:
-                        results.append(quote)
-                
-                # Step 2: If we don't have enough results, add from both languages
-                # Try to get a balanced mix
-                en_matched = [q for q in en_quotes if q not in results]
-                ru_matched = [q for q in ru_quotes if q not in results]
-                
-                # Calculate how many from each language we should add
-                remaining = limit - len(results)
-                if remaining > 0:
-                    # Try to get roughly equal numbers from each language
-                    # But if one language has fewer matches, use what's available
-                    target_per_lang = max(1, remaining // 2)
-                    
-                    # Alternate between languages to ensure both are represented
-                    en_idx = 0
-                    ru_idx = 0
-                    while len(results) < limit and (en_idx < len(en_matched) or ru_idx < len(ru_matched)):
-                        # Add Russian quote if available and we need more Russian results
-                        ru_count = len([r for r in results if r['language'] == 'ru'])
-                        if ru_idx < len(ru_matched) and (ru_count < target_per_lang or en_idx >= len(en_matched)):
-                            quote = ru_matched[ru_idx]
-                            if quote not in results:
-                                results.append(quote)
-                            ru_idx += 1
-                        # Add English quote if available
-                        elif en_idx < len(en_matched):
-                            quote = en_matched[en_idx]
-                            if quote not in results:
-                                results.append(quote)
-                            en_idx += 1
-                        else:
-                            break
-                
-                # Step 3: Ensure both languages are represented
-                # Count languages in current results
-                en_count = len([r for r in results if r['language'] == 'en'])
-                ru_count = len([r for r in results if r['language'] == 'ru'])
-                
-                # If we have results but missing one language, add some from missing language
-                # This should happen even if we've hit the limit - we'll replace some results
-                if len(results) > 0:
-                    if ru_count == 0:
-                        # No Russian quotes - add some, even if we need to remove some English ones
-                        ru_quotes_models = self.db.query(Quote).filter(
-                            Quote.language == 'ru'
-                        ).order_by(func.random()).limit(min(5, max(3, limit // 3))).all()
-                        
-                        # Remove some English quotes to make room for Russian ones
-                        # Keep at least half English if possible
-                        en_to_remove = min(len(ru_quotes_models), en_count // 2) if en_count > 3 else 0
-                        if en_to_remove > 0:
-                            # Remove English quotes from the end (keep the best matches)
-                            results = [r for r in results if r['language'] != 'en'][:limit - en_to_remove]
-                            # Add back some English quotes
-                            en_kept = [r for r in en_quotes if r not in results][:en_to_remove]
-                            results = en_kept + results
-                        
-                        # Add Russian quotes
-                        for quote in ru_quotes_models:
-                            if len(results) >= limit:
-                                break
-                            quote_dict = self._quote_to_dict(quote)
-                            quote_dict["has_translation"] = False
-                            quote_dict["translation_count"] = 0
-                            if not any(r['id'] == quote_dict['id'] for r in results):
-                                results.append(quote_dict)
-                        
-                        # Trim to limit if we exceeded it
-                        results = results[:limit]
-                        
-                    elif en_count == 0:
-                        # No English quotes - add some, even if we need to remove some Russian ones
-                        en_quotes_models = self.db.query(Quote).filter(
-                            Quote.language == 'en'
-                        ).order_by(func.random()).limit(min(5, max(3, limit // 3))).all()
-                        
-                        # Remove some Russian quotes to make room for English ones
-                        ru_to_remove = min(len(en_quotes_models), ru_count // 2) if ru_count > 3 else 0
-                        if ru_to_remove > 0:
-                            # Remove Russian quotes from the end
-                            results = [r for r in results if r['language'] != 'ru'][:limit - ru_to_remove]
-                            # Add back some Russian quotes
-                            ru_kept = [r for r in ru_quotes if r not in results][:ru_to_remove]
-                            results = ru_kept + results
-                        
-                        # Add English quotes
-                        for quote in en_quotes_models:
-                            if len(results) >= limit:
-                                break
-                            quote_dict = self._quote_to_dict(quote)
-                            quote_dict["has_translation"] = False
-                            quote_dict["translation_count"] = 0
-                            if not any(r['id'] == quote_dict['id'] for r in results):
-                                results.append(quote_dict)
-                        
-                        # Trim to limit if we exceeded it
-                        results = results[:limit]
-            else:
-                # Language filter specified - use original logic
-                if prefer_bilingual:
-                    results = bilingual_quotes + regular_quotes
-                else:
-                    results = bilingual_quotes + regular_quotes
-                results = results[:limit]
-
             logger.info(
-                f"Search '{query}' returned {len(results)} results "
-                f"(EN: {len([r for r in results if r['language'] == 'en'])}, "
-                f"RU: {len([r for r in results if r['language'] == 'ru'])}, "
-                f"bilingual: {len(bilingual_quotes)})"
+                f"Search '{query}' returned {len(results)} bilingual pairs"
             )
             return results
 
@@ -316,6 +169,54 @@ class SearchService:
             # Return empty list instead of raising exception
             # This prevents 500 errors when queries fail
             return []
+    
+    def _translate_quote_text(self, text: str, target_lang: str) -> Optional[str]:
+        """
+        Translate quote text word-by-word using translation dictionary.
+        
+        This is a fallback when translation doesn't exist in database.
+        
+        Args:
+            text: Quote text to translate
+            target_lang: Target language ('en' or 'ru')
+            
+        Returns:
+            Translated text or None if translation not possible
+        """
+        try:
+            from utils.translator import translate_query
+            
+            # Simple word-by-word translation
+            words = text.split()
+            translated_words = []
+            
+            for word in words:
+                # Clean word (remove punctuation)
+                clean_word = ''.join(c for c in word if c.isalnum())
+                if not clean_word:
+                    translated_words.append(word)
+                    continue
+                
+                # Try to translate
+                translation = translate_query(clean_word, self.db)
+                if translation and translation.lower() != clean_word.lower():
+                    # Replace word with translation, preserving punctuation
+                    if word[0].isupper():
+                        translation = translation.capitalize()
+                    translated_words.append(word.replace(clean_word, translation))
+                else:
+                    translated_words.append(word)
+            
+            translated_text = ' '.join(translated_words)
+            
+            # Only return if we actually translated something
+            if translated_text.lower() != text.lower():
+                return translated_text
+            
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to translate quote text: {e}")
+            return None
 
     def get_bilingual_pairs(
         self,
@@ -339,7 +240,9 @@ class SearchService:
             for en_quote, ru_quote in pairs:
                 results.append({
                     "english": self._quote_to_dict(en_quote),
-                    "russian": self._quote_to_dict(ru_quote)
+                    "russian": self._quote_to_dict(ru_quote),
+                    "is_translated": False,
+                    "translation_source": None
                 })
 
             return results
@@ -386,4 +289,3 @@ class SearchService:
             }
         
         return result
-

@@ -37,7 +37,7 @@ class SourceSchema(BaseModel):
 class QuoteSchema(BaseModel):
     """Quote schema."""
 
-    id: int
+    id: Optional[int] = None  # None for translated quotes not in DB
     text: str
     language: str
     author: Optional[AuthorSchema] = None
