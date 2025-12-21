@@ -168,13 +168,12 @@ function App() {
           )}
 
           <Grid container spacing={3}>
-            {results.map((quote) => (
-              <Grid item xs={12} md={6} key={quote.id}>
+            {results.map((pair, index) => (
+              <Grid item xs={12} key={pair.english?.id || pair.russian?.id || index}>
                 <Card
                   sx={{
-                    height: '100%',
-                    borderLeft: quote.has_translation ? '4px solid #27ae60' : '4px solid #667eea',
-                    bgcolor: quote.has_translation ? 'rgba(39, 174, 96, 0.05)' : 'white',
+                    borderLeft: (pair.english && pair.russian) ? '4px solid #27ae60' : '4px solid #667eea',
+                    bgcolor: (pair.english && pair.russian) ? 'rgba(39, 174, 96, 0.05)' : 'white',
                     transition: 'transform 0.2s, box-shadow 0.2s',
                     '&:hover': {
                       transform: 'translateY(-4px)',
@@ -183,46 +182,85 @@ function App() {
                   }}
                 >
                   <CardContent>
-                    <Typography
-                      variant="body1"
-                      sx={{
-                        fontStyle: 'italic',
-                        fontSize: '1.1rem',
-                        mb: 2,
-                        color: 'text.primary',
-                        lineHeight: 1.8,
-                      }}
-                    >
-                      "{quote.text}"
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <Chip
-                        icon={<LanguageIcon />}
-                        label={quote.language === 'en' ? 'EN' : 'RU'}
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                      />
-                      {quote.author && (
-                        <Chip
-                          label={`Author: ${quote.author.name}`}
-                          size="small"
-                          variant="outlined"
-                        />
+                    <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
+                      {/* English Quote */}
+                      {pair.english && (
+                        <Box sx={{ flex: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                            <Chip
+                              icon={<LanguageIcon />}
+                              label="EN"
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                            />
+                            {pair.is_translated && (
+                              <Chip
+                                label="Translated"
+                                size="small"
+                                color="warning"
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
+                          <Typography
+                            variant="body1"
+                            sx={{
+                              fontStyle: 'italic',
+                              fontSize: '1.1rem',
+                              mb: 1,
+                              color: 'text.primary',
+                              lineHeight: 1.8,
+                            }}
+                          >
+                            "{pair.english.text}"
+                          </Typography>
+                          {pair.english.author && (
+                            <Typography variant="caption" color="text.secondary">
+                              — {pair.english.author.name}
+                            </Typography>
+                          )}
+                        </Box>
                       )}
-                      {quote.source && (
-                        <Chip
-                          label={quote.source.title}
-                          size="small"
-                          variant="outlined"
-                        />
-                      )}
-                      {quote.has_translation && (
-                        <Chip
-                          label="Bilingual"
-                          size="small"
-                          color="success"
-                        />
+                      
+                      {/* Russian Quote */}
+                      {pair.russian && (
+                        <Box sx={{ flex: 1, borderLeft: { md: '1px solid #e0e0e0' }, pl: { md: 3 } }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                            <Chip
+                              icon={<LanguageIcon />}
+                              label="RU"
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                            />
+                            {pair.is_translated && (
+                              <Chip
+                                label="Translated"
+                                size="small"
+                                color="warning"
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
+                          <Typography
+                            variant="body1"
+                            sx={{
+                              fontStyle: 'italic',
+                              fontSize: '1.1rem',
+                              mb: 1,
+                              color: 'text.primary',
+                              lineHeight: 1.8,
+                            }}
+                          >
+                            "{pair.russian.text}"
+                          </Typography>
+                          {pair.russian.author && (
+                            <Typography variant="caption" color="text.secondary">
+                              — {pair.russian.author.name}
+                            </Typography>
+                          )}
+                        </Box>
                       )}
                     </Box>
                   </CardContent>

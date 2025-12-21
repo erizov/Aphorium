@@ -17,7 +17,7 @@ from logger_config import logger
 router = APIRouter()
 
 
-@router.get("/search", response_model=list[QuoteSchema])
+@router.get("/search", response_model=list[BilingualPairSchema])
 def search_quotes(
     q: str = Query(..., description="Search query"),
     lang: Optional[str] = Query(

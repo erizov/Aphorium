@@ -71,6 +71,8 @@ class QuoteWithTranslationsSchema(BaseModel):
 class BilingualPairSchema(BaseModel):
     """Bilingual quote pair schema."""
 
-    english: QuoteSchema
-    russian: QuoteSchema
+    english: Optional[QuoteSchema] = None
+    russian: Optional[QuoteSchema] = None
+    is_translated: bool = False  # True if translation was generated, False if from DB
+    translation_source: Optional[str] = None  # e.g., "word_translation_dict" if translated
 

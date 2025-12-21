@@ -37,19 +37,20 @@ class SearchService:
         limit: int = 50
     ) -> List[dict]:
         """
-        Search quotes with bilingual preference.
+        Search quotes and return as bilingual pairs (EN + RU side by side).
         
-        Always returns results from both languages unless explicitly filtered.
-        Ensures a balanced mix of English and Russian quotes.
+        For each quote found, returns both English and Russian versions if available.
+        If translation doesn't exist in database, attempts word-by-word translation
+        and notes it in the result.
 
         Args:
             query: Search query text
             language: Filter by language ('en', 'ru', 'both', or None)
-            prefer_bilingual: Prioritize quotes with translations
-            limit: Maximum number of results
+            prefer_bilingual: Prioritize quotes with translations in database
+            limit: Maximum number of quote pairs
 
         Returns:
-            List of quote dictionaries with metadata from both languages
+            List of bilingual pair dictionaries: [{"english": {...}, "russian": {...}}, ...]
         """
         try:
             # Determine language filter
@@ -57,37 +58,106 @@ class SearchService:
             if language and language != "both":
                 lang_filter = language
 
-            # Get both original and translated query for bilingual search
-            # Pass database session for translation lookup
-            original_query, translated_query = get_bilingual_search_queries(query, self.db)
-            
-            # Search with both queries to find results in both languages
-            # Search with higher limit to get results from both languages
-            search_limit = limit * 3 if not lang_filter else limit * 2
-            
-            # Search with original query
-            quotes_original = self.quote_repo.search(
-                query=original_query,
+            # Search for quotes matching the query
+            # Don't translate the query - search for quotes that exist
+            search_limit = limit * 2  # Get more quotes to find pairs
+            quotes = self.quote_repo.search(
+                query=query,
                 language=lang_filter,
                 limit=search_limit
             )
             
-            # Search with translated query (if different from original)
-            quotes_translated = []
-            if translated_query.lower() != original_query.lower():
-                quotes_translated = self.quote_repo.search(
-                    query=translated_query,
-                    language=lang_filter,
-                    limit=search_limit
-                )
+            # Build bilingual pairs
+            results = []
+            seen_pairs = set()  # Track pairs we've already added
             
-            # Combine results, removing duplicates by ID
-            seen_ids = set()
-            quotes = []
-            for quote in quotes_original + quotes_translated:
-                if quote.id not in seen_ids:
-                    quotes.append(quote)
-                    seen_ids.add(quote.id)
+            for quote in quotes:
+                # Get bilingual pair for this quote
+                en_quote, ru_quote = self.translation_repo.get_bilingual_pair(quote.id)
+                
+                # Create pair key to avoid duplicates
+                if en_quote and ru_quote:
+                    pair_key = (en_quote.id, ru_quote.id)
+                elif en_quote:
+                    pair_key = (en_quote.id, None)
+                elif ru_quote:
+                    pair_key = (None, ru_quote.id)
+                else:
+                    # No translation found - use original quote
+                    if quote.language == 'en':
+                        pair_key = (quote.id, None)
+                    else:
+                        pair_key = (None, quote.id)
+                
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+                
+                # Build pair dictionary
+                pair_dict = {
+                    "english": None,
+                    "russian": None,
+                    "is_translated": False,
+                    "translation_source": None
+                }
+                
+                if en_quote:
+                    pair_dict["english"] = self._quote_to_dict(en_quote)
+                elif quote.language == 'en':
+                    pair_dict["english"] = self._quote_to_dict(quote)
+                
+                if ru_quote:
+                    pair_dict["russian"] = self._quote_to_dict(ru_quote)
+                elif quote.language == 'ru':
+                    pair_dict["russian"] = self._quote_to_dict(quote)
+                
+                # If we have one language but not the other, try word-by-word translation
+                if pair_dict["english"] and not pair_dict["russian"]:
+                    # Try to translate English quote to Russian
+                    translated_text = self._translate_quote_text(
+                        pair_dict["english"]["text"],
+                        target_lang="ru"
+                    )
+                    if translated_text and translated_text != pair_dict["english"]["text"]:
+                        pair_dict["russian"] = {
+                            "id": None,  # Not in database
+                            "text": translated_text,
+                            "language": "ru",
+                            "author": pair_dict["english"]["author"],
+                            "source": pair_dict["english"]["source"],
+                            "has_translation": False,
+                            "translation_count": 0,
+                            "created_at": None
+                        }
+                        pair_dict["is_translated"] = True
+                        pair_dict["translation_source"] = "word_translation_dict"
+                
+                elif pair_dict["russian"] and not pair_dict["english"]:
+                    # Try to translate Russian quote to English
+                    translated_text = self._translate_quote_text(
+                        pair_dict["russian"]["text"],
+                        target_lang="en"
+                    )
+                    if translated_text and translated_text != pair_dict["russian"]["text"]:
+                        pair_dict["english"] = {
+                            "id": None,  # Not in database
+                            "text": translated_text,
+                            "language": "en",
+                            "author": pair_dict["russian"]["author"],
+                            "source": pair_dict["russian"]["source"],
+                            "has_translation": False,
+                            "translation_count": 0,
+                            "created_at": None
+                        }
+                        pair_dict["is_translated"] = True
+                        pair_dict["translation_source"] = "word_translation_dict"
+                
+                # Only add pairs that have at least one language
+                if pair_dict["english"] or pair_dict["russian"]:
+                    results.append(pair_dict)
+                
+                if len(results) >= limit:
+                    break
 
             # Enrich with translation info and separate by language
             en_quotes = []
