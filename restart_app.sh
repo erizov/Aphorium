@@ -51,16 +51,12 @@ cleanup() {
 
 trap cleanup INT TERM
 
-# Tail both log files with prefixes
-tail -f logs/backend.log logs/frontend.log 2>/dev/null | while read line; do
-    if echo "$line" | grep -q "backend.log"; then
-        echo "[BACKEND] $line" | sed 's/.*backend.log://'
-    elif echo "$line" | grep -q "frontend.log"; then
-        echo "[FRONTEND] $line" | sed 's/.*frontend.log://'
-    else
-        echo "$line"
-    fi
-done
-
-# Alternative simpler approach - just show both logs
-# tail -f logs/backend.log -f logs/frontend.log
+# Tail both log files with prefixes using multitail or simple approach
+if command -v multitail &> /dev/null; then
+    multitail -s 2 -cT ansi logs/backend.log -cT ansi logs/frontend.log
+else
+    # Simple approach: use tail with process substitution
+    tail -f logs/backend.log | sed 's/^/[BACKEND] /' &
+    tail -f logs/frontend.log | sed 's/^/[FRONTEND] /' &
+    wait
+fi
