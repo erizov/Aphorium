@@ -66,6 +66,15 @@ class PostgreSQLSearchStrategy(SearchStrategy):
             # Return empty results for empty/invalid queries
             return []
         
+        # Translate query to search in both languages
+        from utils.translator import get_bilingual_search_queries
+        original_query, translated_query = get_bilingual_search_queries(query, self.db)
+        
+        # Use both queries for search
+        queries_to_search = [original_query]
+        if translated_query and translated_query.lower() != original_query.lower():
+            queries_to_search.append(translated_query)
+        
         search_query = self.db.query(Quote)
 
         # Only filter by language if explicitly requested
@@ -74,54 +83,63 @@ class PostgreSQLSearchStrategy(SearchStrategy):
         # Otherwise, search both languages (no language filter)
 
         # Search across all language configurations to find matches in both languages
-        # Use OR to match in any language configuration
+        # Use OR to match in any language configuration and any query variant
         # plainto_tsquery automatically handles special characters and SQL keywords
         try:
-            # For multi-word queries, use phrase search to match words in order
-            # plainto_tsquery creates AND queries by default, which is what we want
-            search_query = search_query.filter(
-                or_(
+            # Build OR conditions for each query variant
+            search_conditions = []
+            for q in queries_to_search:
+                search_conditions.extend([
                     # English text search config
                     func.to_tsvector('english', Quote.text).match(
-                        func.plainto_tsquery('english', query)
+                        func.plainto_tsquery('english', q)
                     ),
                     # Russian text search config
                     func.to_tsvector('russian', Quote.text).match(
-                        func.plainto_tsquery('russian', query)
+                        func.plainto_tsquery('russian', q)
                     ),
                     # Simple (language-agnostic) config for broader matching
                     func.to_tsvector('simple', Quote.text).match(
-                        func.plainto_tsquery('simple', query)
+                        func.plainto_tsquery('simple', q)
                     )
-                )
-            )
+                ])
+            
+            # Combine all conditions with OR
+            search_query = search_query.filter(or_(*search_conditions))
         except Exception as e:
             logger.warning(f"Full-text search failed for query '{query}': {e}. Trying simple search.")
             # Fallback: if plainto_tsquery fails (e.g., invalid characters), 
             # use a basic text search that matches the phrase
-            escaped_query = query.replace('%', '\\%').replace('_', '\\_')
-            search_query = search_query.filter(
-                Quote.text.ilike(f"%{escaped_query}%")
-            )
+            # Use both original and translated queries
+            fallback_conditions = []
+            for q in queries_to_search:
+                escaped_q = q.replace('%', '\\%').replace('_', '\\_')
+                fallback_conditions.append(
+                    Quote.text.ilike(f"%{escaped_q}%")
+                )
+            search_query = search_query.filter(or_(*fallback_conditions))
         
         # Order by relevance across all language configs
         # This ensures we get the best matches from both languages
         try:
+            # Build ordering using the first query (original) for ranking
+            # This prioritizes exact matches over translated matches
+            primary_query = queries_to_search[0]
             search_query = search_query.order_by(
                 # Prioritize matches in the query's detected language
                 func.ts_rank(
                     func.to_tsvector('simple', Quote.text),
-                    func.plainto_tsquery('simple', query)
+                    func.plainto_tsquery('simple', primary_query)
                 ).desc().nullslast(),
                 # Then by English config relevance
                 func.ts_rank(
                     func.to_tsvector('english', Quote.text),
-                    func.plainto_tsquery('english', query)
+                    func.plainto_tsquery('english', primary_query)
                 ).desc().nullslast(),
                 # Then by Russian config relevance
                 func.ts_rank(
                     func.to_tsvector('russian', Quote.text),
-                    func.plainto_tsquery('russian', query)
+                    func.plainto_tsquery('russian', primary_query)
                 ).desc().nullslast()
             )
         except Exception:
@@ -158,6 +176,15 @@ class SQLiteSearchStrategy(SearchStrategy):
             # Return empty results for empty/invalid queries
             return []
         
+        # Translate query to search in both languages
+        from utils.translator import get_bilingual_search_queries
+        original_query, translated_query = get_bilingual_search_queries(query, self.db)
+        
+        # Use both queries for search
+        queries_to_search = [original_query]
+        if translated_query and translated_query.lower() != original_query.lower():
+            queries_to_search.append(translated_query)
+        
         search_query = self.db.query(Quote)
 
         # Only filter by language if explicitly requested
@@ -169,12 +196,18 @@ class SQLiteSearchStrategy(SearchStrategy):
         # without FTS5 extension)
         # For multi-word queries, match the phrase in order
         # Escape special LIKE characters to prevent issues
+        # Search with both original and translated queries
         
-        # First try exact phrase match (words in order)
-        escaped_query = escape_like_pattern(query)
-        search_query = search_query.filter(
-            Quote.text.ilike(f"%{escaped_query}%", escape='\\')
-        )
+        # Build OR conditions for each query variant
+        search_conditions = []
+        for q in queries_to_search:
+            escaped_query = escape_like_pattern(q)
+            search_conditions.append(
+                Quote.text.ilike(f"%{escaped_query}%", escape='\\')
+            )
+        
+        # Combine all conditions with OR
+        search_query = search_query.filter(or_(*search_conditions))
         
         # If no results, fall back to matching all words (but this is less ideal)
         # We'll let the caller handle empty results

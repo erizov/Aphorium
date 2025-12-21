@@ -26,7 +26,7 @@ def search_quotes(
     prefer_bilingual: bool = Query(
         True, description="Prioritize quotes with translations"
     ),
-    limit: int = Query(50, ge=1, le=100, description="Result limit"),
+    limit: int = Query(50, ge=1, le=300, description="Result limit"),
     db: Session = Depends(get_db)
 ) -> list[dict]:
     """
@@ -116,7 +116,7 @@ def get_quote(
 
 @router.get("/bilingual/pairs", response_model=list[BilingualPairSchema])
 def get_bilingual_pairs(
-    limit: int = Query(50, ge=1, le=100, description="Result limit"),
+    limit: int = Query(50, ge=1, le=300, description="Result limit"),
     offset: int = Query(0, ge=0, description="Result offset"),
     db: Session = Depends(get_db)
 ) -> list[dict]:
