@@ -184,7 +184,10 @@ class SearchService:
             Translated text or None if translation not possible
         """
         try:
-            from utils.translator import translate_word
+            from repositories.translation_word_repository import TranslationWordRepository
+            from utils.text_utils import detect_language
+            
+            repo = TranslationWordRepository(self.db)
             
             # Simple word-by-word translation
             words = text.split()
@@ -199,16 +202,27 @@ class SearchService:
                     continue
                 
                 # Detect source language
-                source_lang = 'en' if target_lang == 'ru' else 'ru'
+                source_lang = detect_language(clean_word)
+                if source_lang == 'unknown':
+                    # Default to opposite of target
+                    source_lang = 'en' if target_lang == 'ru' else 'ru'
                 
-                # Try to translate
-                translation = translate_word(self.db, clean_word, source_lang)
-                if translation and translation.lower() != clean_word.lower():
-                    # Replace word with translation, preserving punctuation
-                    if word[0].isupper():
-                        translation = translation.capitalize()
-                    translated_words.append(word.replace(clean_word, translation))
-                    translated_count += 1
+                # Try to translate using repository
+                translation_entry = repo.get_by_word(clean_word.lower(), source_lang)
+                if translation_entry:
+                    if source_lang == 'en':
+                        translation = translation_entry.word_ru
+                    else:
+                        translation = translation_entry.word_en
+                    
+                    if translation and translation.lower() != clean_word.lower():
+                        # Replace word with translation, preserving punctuation
+                        if word[0].isupper():
+                            translation = translation.capitalize()
+                        translated_words.append(word.replace(clean_word, translation))
+                        translated_count += 1
+                    else:
+                        translated_words.append(word)
                 else:
                     translated_words.append(word)
             
