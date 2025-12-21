@@ -30,6 +30,10 @@ if [ -n "$NODE_PID" ]; then
     kill $NODE_PID 2>/dev/null
 fi
 
+# Kill tail and sed processes (from log monitoring)
+pkill tail 2>/dev/null
+pkill sed 2>/dev/null
+
 # Kill processes by port
 BACKEND_PORT=8000
 FRONTEND_PORT=3000

@@ -41,6 +41,16 @@ Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
     Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
+# Kill tail and sed processes (from log monitoring)
+Get-Process | Where-Object {
+    $_.ProcessName -eq "tail" -or 
+    $_.CommandLine -like "*tail*logs*" -or
+    $_.CommandLine -like "*sed*"
+} | ForEach-Object {
+    Write-Host "Stopping $($_.ProcessName) process $($_.Id)..." -ForegroundColor Cyan
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+
 # Kill processes by port
 $backendPort = 8000
 $frontendPort = 3000
