@@ -90,6 +90,7 @@ class SearchService:
                     pair_dict["english"] = self._quote_to_dict(quote)
                     
                     # Look for matching Russian quote from same author
+                    # Use translation only for matching, not for display
                     ru_quote = self._find_matching_quote_by_author(
                         author_name, 'ru', 
                         quote.source_id if quote.source else None,
@@ -99,31 +100,15 @@ class SearchService:
                     if ru_quote:
                         # Found matching RU quote in database - use it
                         pair_dict["russian"] = self._quote_to_dict(ru_quote)
-                    else:
-                        # No matching RU quote - translate EN to RU
-                        translated_text = self._translate_quote_text(
-                            quote.text,
-                            target_lang="ru"
-                        )
-                        if translated_text and translated_text != quote.text:
-                            pair_dict["russian"] = {
-                                "id": None,  # Not in database
-                                "text": translated_text,
-                                "language": "ru",
-                                "author": pair_dict["english"]["author"],
-                                "source": pair_dict["english"]["source"],
-                                "has_translation": False,
-                                "translation_count": 0,
-                                "created_at": None
-                            }
-                            pair_dict["is_translated"] = True
-                            pair_dict["translation_source"] = "word_translation_dict"
+                    # If no matching RU quote found, leave russian as None
+                    # Do NOT translate - only show original quotes from database
                 
                 elif quote.language == 'ru':
                     # Russian quote goes on the right
                     pair_dict["russian"] = self._quote_to_dict(quote)
                     
                     # Look for matching English quote from same author
+                    # Use translation only for matching, not for display
                     en_quote = self._find_matching_quote_by_author(
                         author_name, 'en',
                         quote.source_id if quote.source else None,
@@ -133,25 +118,8 @@ class SearchService:
                     if en_quote:
                         # Found matching EN quote in database - use it
                         pair_dict["english"] = self._quote_to_dict(en_quote)
-                    else:
-                        # No matching EN quote - translate RU to EN
-                        translated_text = self._translate_quote_text(
-                            quote.text,
-                            target_lang="en"
-                        )
-                        if translated_text and translated_text != quote.text:
-                            pair_dict["english"] = {
-                                "id": None,  # Not in database
-                                "text": translated_text,
-                                "language": "en",
-                                "author": pair_dict["russian"]["author"],
-                                "source": pair_dict["russian"]["source"],
-                                "has_translation": False,
-                                "translation_count": 0,
-                                "created_at": None
-                            }
-                            pair_dict["is_translated"] = True
-                            pair_dict["translation_source"] = "word_translation_dict"
+                    # If no matching EN quote found, leave english as None
+                    # Do NOT translate - only show original quotes from database
                 
                 # Create pair key to avoid duplicates
                 en_id = pair_dict["english"]["id"] if pair_dict["english"] else None
