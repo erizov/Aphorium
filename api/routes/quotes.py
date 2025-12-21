@@ -47,12 +47,13 @@ def search_quotes(
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
         search_service = SearchService(db)
-        # If lang is None or 'both', search both languages
-        # Otherwise filter by specified language
+        # Always search both languages unless explicitly filtered
+        # This ensures results include quotes in both English and Russian
+        # regardless of the query language
         search_lang = None if (lang is None or lang == "both") else lang
         results = search_service.search(
             query=q.strip(),
-            language=search_lang,
+            language=search_lang,  # None means search both languages
             prefer_bilingual=prefer_bilingual,
             limit=limit
         )
