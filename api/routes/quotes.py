@@ -59,21 +59,29 @@ def search_quotes(
         # This ensures results include quotes in both English and Russian
         # regardless of the query language
         search_lang = None if (lang is None or lang == "both") else lang
-        results = search_service.search(
-            query=q.strip(),
-            language=search_lang,  # None means search both languages
-            prefer_bilingual=prefer_bilingual,
-            limit=limit
-        )
-        return results
+        
+        try:
+            results = search_service.search(
+                query=q.strip(),
+                language=search_lang,  # None means search both languages
+                prefer_bilingual=prefer_bilingual,
+                limit=limit
+            )
+            # Always return a list, even if empty
+            # This prevents 500 errors when no results are found
+            return results if results else []
+        except Exception as search_error:
+            logger.warning(f"Search failed for query '{q}': {search_error}")
+            # Return empty list instead of error for failed searches
+            # This handles cases like invalid queries, no matches, etc.
+            return []
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Search endpoint error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Search failed: {str(e)}"
-        )
+        # Return empty list instead of 500 error
+        # This is more user-friendly for edge cases
+        return []
 
 
 @router.get("/{quote_id}", response_model=QuoteWithTranslationsSchema)

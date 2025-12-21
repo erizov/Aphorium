@@ -67,7 +67,7 @@ def sanitize_search_query(query: str, max_length: int = 500) -> str:
     """
     Sanitize search query to prevent SQL injection and handle special characters.
     
-    Removes or escapes special characters that could cause issues with:
+    Handles special characters that could cause issues with:
     - PostgreSQL full-text search (plainto_tsquery)
     - SQLite LIKE queries
     - SQL injection attempts
@@ -88,22 +88,17 @@ def sanitize_search_query(query: str, max_length: int = 500) -> str:
     # Remove null bytes
     query = query.replace('\x00', '')
     
-    # For SQLite LIKE queries, escape special LIKE characters
-    # Escape: %, _, [, ], ^, \
-    # But we'll use parameterized queries, so we mainly need to handle
-    # characters that break plainto_tsquery in PostgreSQL
-    
-    # Remove or replace characters that break PostgreSQL's plainto_tsquery:
-    # - Single quotes can cause issues
-    # - Special operators: &, |, !, :, *, <, >, (, )
-    # We'll keep them but they'll be treated as regular text by plainto_tsquery
-    
     # Remove control characters except newlines and tabs
     query = ''.join(char for char in query if char.isprintable() or char in '\n\t')
     
-    # Normalize whitespace
-    query = re.sub(r'\s+', ' ', query)
+    # Normalize whitespace (but preserve hyphens for phrases like "Dual-language")
+    # Replace multiple spaces with single space, but keep hyphens
+    query = re.sub(r'[ \t]+', ' ', query)
     query = query.strip()
+    
+    # plainto_tsquery handles most special characters automatically
+    # It treats them as word separators, which is fine for our use case
+    # We just need to ensure the query is not empty after sanitization
     
     return query
 

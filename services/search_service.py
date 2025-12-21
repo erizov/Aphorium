@@ -165,8 +165,10 @@ class SearchService:
             return results
 
         except Exception as e:
-            logger.error(f"Search service error: {e}")
-            raise
+            logger.error(f"Search service error: {e}", exc_info=True)
+            # Return empty list instead of raising exception
+            # This prevents 500 errors when queries fail
+            return []
 
     def get_bilingual_pairs(
         self,

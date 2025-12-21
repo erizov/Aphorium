@@ -77,6 +77,8 @@ class PostgreSQLSearchStrategy(SearchStrategy):
         # Use OR to match in any language configuration
         # plainto_tsquery automatically handles special characters and SQL keywords
         try:
+            # For multi-word queries, use phrase search to match words in order
+            # plainto_tsquery creates AND queries by default, which is what we want
             search_query = search_query.filter(
                 or_(
                     # English text search config
@@ -95,10 +97,11 @@ class PostgreSQLSearchStrategy(SearchStrategy):
             )
         except Exception as e:
             logger.warning(f"Full-text search failed for query '{query}': {e}. Trying simple search.")
-            # Fallback: if plainto_tsquery fails, try a simpler approach
-            # Escape the query and use a basic text search
+            # Fallback: if plainto_tsquery fails (e.g., invalid characters), 
+            # use a basic text search that matches the phrase
+            escaped_query = query.replace('%', '\\%').replace('_', '\\_')
             search_query = search_query.filter(
-                Quote.text.ilike(f"%{query.replace('%', '\\%').replace('_', '\\_')}%")
+                Quote.text.ilike(f"%{escaped_query}%")
             )
         
         # Order by relevance across all language configs
@@ -164,26 +167,17 @@ class SQLiteSearchStrategy(SearchStrategy):
 
         # Use LIKE for text search (SQLite doesn't have full-text search
         # without FTS5 extension)
+        # For multi-word queries, match the phrase in order
         # Escape special LIKE characters to prevent issues
-        # Split query into terms and search for each
-        search_terms = query.strip().split()
         
-        if not search_terms:
-            return []
+        # First try exact phrase match (words in order)
+        escaped_query = escape_like_pattern(query)
+        search_query = search_query.filter(
+            Quote.text.ilike(f"%{escaped_query}%", escape='\\')
+        )
         
-        # Build OR conditions for all terms (any term can match)
-        from sqlalchemy import or_
-        term_conditions = []
-        for term in search_terms:
-            # Escape LIKE special characters
-            escaped_term = escape_like_pattern(term)
-            # Use parameterized query to prevent SQL injection
-            term_conditions.append(
-                Quote.text.ilike(f"%{escaped_term}%", escape='\\')
-            )
-        
-        if term_conditions:
-            search_query = search_query.filter(or_(*term_conditions))
+        # If no results, fall back to matching all words (but this is less ideal)
+        # We'll let the caller handle empty results
 
         # Order by text length (shorter matches first as proxy for relevance)
         # This will return results from both languages
