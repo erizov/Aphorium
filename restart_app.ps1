@@ -9,64 +9,126 @@ Write-Host "Stopping previous instances..." -ForegroundColor Yellow
 # First, run stop script to clean up
 & ".\stop_app.ps1"
 
-# Kill processes on ports 8000, 3000, 3001, 3002 (in case frontend tried different ports)
-$ports = @(8000, 3000, 3001, 3002)
-foreach ($port in $ports) {
+# Kill ALL processes that might be related:
+# 1. Processes on ports 8000, 3000, 3001, 3002, 3003, etc. (in case frontend tried different ports)
+Write-Host "Killing processes on ports..." -ForegroundColor Yellow
+for ($port = 8000; $port -le 3010; $port++) {
     $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
     if ($connections) {
         $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
         foreach ($pid in $pids) {
-            Write-Host "Killing process on port $port (PID: $pid)..." -ForegroundColor Yellow
+            Write-Host "  Killing process on port $port (PID: $pid)..." -ForegroundColor Yellow
             Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
         }
     }
 }
 
-# Kill all node processes (frontend)
+# 2. Kill all node processes (frontend)
+Write-Host "Killing all node processes..." -ForegroundColor Yellow
 Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Host "Killing node process (PID: $($_.Id))..." -ForegroundColor Yellow
+    Write-Host "  Killing node process (PID: $($_.Id))..." -ForegroundColor Yellow
     Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
-# Kill all python processes running uvicorn
+# 3. Kill all python processes running uvicorn
+Write-Host "Killing uvicorn/python processes..." -ForegroundColor Yellow
 Get-Process python -ErrorAction SilentlyContinue | ForEach-Object {
     try {
         $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)").CommandLine
-        if ($cmdLine -like "*uvicorn*" -or $cmdLine -like "*api.main*") {
-            Write-Host "Killing uvicorn process (PID: $($_.Id))..." -ForegroundColor Yellow
+        if ($cmdLine -like "*uvicorn*" -or $cmdLine -like "*api.main*" -or $cmdLine -like "*aphorium*") {
+            Write-Host "  Killing uvicorn process (PID: $($_.Id))..." -ForegroundColor Yellow
             Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
         }
     } catch {
-        # If we can't check command line, kill it anyway if it's using our ports
+        # If we can't check command line, check if it's using our ports
+        $usingPort = $false
+        try {
+            $conns = Get-NetTCPConnection -OwningProcess $_.Id -ErrorAction SilentlyContinue
+            if ($conns) {
+                $ports = $conns | Select-Object -ExpandProperty LocalPort
+                if ($ports -contains 8000 -or $ports -contains 3000) {
+                    $usingPort = $true
+                }
+            }
+        } catch {}
+        if ($usingPort) {
+            Write-Host "  Killing python process using our ports (PID: $($_.Id))..." -ForegroundColor Yellow
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
-# Wait for ports to be released with more aggressive checking
-Write-Host "Waiting for ports to be released..." -ForegroundColor Cyan
-$maxWait = 15
-$waited = 0
-while ($waited -lt $maxWait) {
-    $allPortsFree = $true
-    foreach ($port in @(8000, 3000)) {
-        $inUse = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-        if ($inUse) {
-            $allPortsFree = $false
-            # Try to kill again
-            $pids = $inUse | Select-Object -ExpandProperty OwningProcess -Unique
-            foreach ($pid in $pids) {
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-            }
+# 4. Kill tail and sed processes (from log monitoring)
+Write-Host "Killing tail/sed processes..." -ForegroundColor Yellow
+Get-Process | Where-Object {
+    $_.ProcessName -eq "tail" -or 
+    $_.CommandLine -like "*tail*logs*" -or
+    $_.CommandLine -like "*sed*"
+} | ForEach-Object {
+    Write-Host "  Killing $($_.ProcessName) process (PID: $($_.Id))..." -ForegroundColor Yellow
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+
+# 5. Kill any processes from PID file
+if (Test-Path ".app_pids.txt") {
+    Write-Host "Killing processes from PID file..." -ForegroundColor Yellow
+    $pids = Get-Content ".app_pids.txt" | Where-Object { $_ -match '^\d+$' }
+    foreach ($pid in $pids) {
+        $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        if ($proc) {
+            Write-Host "  Killing process PID: $pid..." -ForegroundColor Yellow
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
         }
     }
+    Remove-Item ".app_pids.txt" -Force -ErrorAction SilentlyContinue
+}
+
+# Wait for ports 8000 and 3000 to be released - NEVER use different ports
+Write-Host "Waiting for ports 8000 and 3000 to be released..." -ForegroundColor Cyan
+Write-Host "IMPORTANT: Will wait until ports are free - will NOT use different ports!" -ForegroundColor Yellow
+$maxWait = 30
+$waited = 0
+while ($waited -lt $maxWait) {
+    $port8000InUse = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
+    $port3000InUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
     
-    if ($allPortsFree) {
+    if (-not $port8000InUse -and -not $port3000InUse) {
         Write-Host "All ports are free!" -ForegroundColor Green
         break
     }
     
+    # If ports still in use, try to kill processes again
+    if ($port8000InUse) {
+        $pids = $port8000InUse | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($pid in $pids) {
+            Write-Host "  Port 8000 still in use, killing PID: $pid..." -ForegroundColor Yellow
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        }
+    }
+    
+    if ($port3000InUse) {
+        $pids = $port3000InUse | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($pid in $pids) {
+            Write-Host "  Port 3000 still in use, killing PID: $pid..." -ForegroundColor Yellow
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        }
+    }
+    
+    # Also kill any remaining node/python processes
+    Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process python -ErrorAction SilentlyContinue | Where-Object {
+        try {
+            $conns = Get-NetTCPConnection -OwningProcess $_.Id -ErrorAction SilentlyContinue
+            if ($conns) {
+                $ports = $conns | Select-Object -ExpandProperty LocalPort
+                $ports -contains 8000 -or $ports -contains 3000
+            } else { $false }
+        } catch { $false }
+    } | Stop-Process -Force -ErrorAction SilentlyContinue
+    
     Start-Sleep -Seconds 1
     $waited++
-    Write-Host "  Waiting for ports... ($waited/$maxWait)" -ForegroundColor Gray
+    Write-Host "  Waiting for ports 8000 and 3000... ($waited/$maxWait)" -ForegroundColor Gray
 }
 
 # Final check - fail if ports still in use
@@ -74,12 +136,17 @@ $port8000InUse = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyConti
 $port3000InUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
 
 if ($port8000InUse -or $port3000InUse) {
-    Write-Host "ERROR: Ports are still in use after $maxWait seconds!" -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "ERROR: Ports 8000 and/or 3000 are still in use after $maxWait seconds!" -ForegroundColor Red
+    Write-Host "Port 8000 in use: $($port8000InUse -ne $null)" -ForegroundColor Red
+    Write-Host "Port 3000 in use: $($port3000InUse -ne $null)" -ForegroundColor Red
     Write-Host "Please manually kill processes and try again." -ForegroundColor Red
+    Write-Host "You can use: Get-NetTCPConnection -LocalPort 8000,3000 | Stop-Process -Id {OwningProcess}" -ForegroundColor Yellow
     exit 1
 }
 
 # Wait a bit more to ensure ports are fully released
+Write-Host "Ports confirmed free. Waiting 2 more seconds..." -ForegroundColor Green
 Start-Sleep -Seconds 2
 
 # Close this terminal and start new one with servers

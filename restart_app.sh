@@ -10,26 +10,48 @@ echo "Stopping previous instances..."
 # First, run stop script to clean up
 ./stop_app.sh
 
-# Kill processes on ports 8000, 3000, 3001, 3002 (in case frontend tried different ports)
-PORTS=(8000 3000 3001 3002)
-for port in "${PORTS[@]}"; do
+# Kill ALL processes that might be related:
+# 1. Processes on ports 8000, 3000, 3001, 3002, etc. (in case frontend tried different ports)
+echo "Killing processes on ports..."
+for port in {8000..3010}; do
     PID=$(lsof -ti:$port 2>/dev/null)
     if [ ! -z "$PID" ]; then
-        echo "Killing process on port $port (PID: $PID)..."
+        echo "  Killing process on port $port (PID: $PID)..."
         kill -9 $PID 2>/dev/null
     fi
 done
 
-# Kill all node processes (frontend)
+# 2. Kill all node processes (frontend)
+echo "Killing all node processes..."
 pkill -9 node 2>/dev/null
 
-# Kill all uvicorn/python processes
+# 3. Kill all uvicorn/python processes
+echo "Killing uvicorn/python processes..."
 pkill -9 -f "uvicorn.*api.main" 2>/dev/null
 pkill -9 -f "uvicorn.*aphorium" 2>/dev/null
+pkill -9 -f "python.*uvicorn" 2>/dev/null
 
-# Wait for ports to be released with more aggressive checking
-echo "Waiting for ports to be released..."
-MAX_WAIT=15
+# 4. Kill tail and sed processes (from log monitoring)
+echo "Killing tail/sed processes..."
+pkill -9 tail 2>/dev/null
+pkill -9 sed 2>/dev/null
+
+# 5. Kill any processes from PID file
+if [ -f ".app_pids.txt" ]; then
+    echo "Killing processes from PID file..."
+    while read pid; do
+        if [ ! -z "$pid" ] && kill -0 $pid 2>/dev/null; then
+            echo "  Killing process PID: $pid..."
+            kill -9 $pid 2>/dev/null
+        fi
+    done < .app_pids.txt
+    rm -f .app_pids.txt
+fi
+
+# Wait for ports 8000 and 3000 to be released - NEVER use different ports
+echo "Waiting for ports 8000 and 3000 to be released..."
+echo "IMPORTANT: Will wait until ports are free - will NOT use different ports!"
+MAX_WAIT=30
 WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
     PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
@@ -40,17 +62,26 @@ while [ $WAITED -lt $MAX_WAIT ]; do
         break
     fi
     
-    # Try to kill again if still in use
+    # If ports still in use, try to kill processes again
     if [ ! -z "$PORT8000_IN_USE" ]; then
+        echo "  Port 8000 still in use, killing PID: $PORT8000_IN_USE..."
         kill -9 $PORT8000_IN_USE 2>/dev/null
     fi
+    
     if [ ! -z "$PORT3000_IN_USE" ]; then
+        echo "  Port 3000 still in use, killing PID: $PORT3000_IN_USE..."
         kill -9 $PORT3000_IN_USE 2>/dev/null
     fi
     
+    # Also kill any remaining node/python processes
+    pkill -9 node 2>/dev/null
+    pkill -9 -f "uvicorn.*api.main" 2>/dev/null
+    pkill -9 tail 2>/dev/null
+    pkill -9 sed 2>/dev/null
+    
     sleep 1
     WAITED=$((WAITED + 1))
-    echo "  Waiting for ports... ($WAITED/$MAX_WAIT)"
+    echo "  Waiting for ports 8000 and 3000... ($WAITED/$MAX_WAIT)"
 done
 
 # Final check - fail if ports still in use
@@ -58,12 +89,17 @@ PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
 PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
 
 if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
-    echo "ERROR: Ports are still in use after $MAX_WAIT seconds!"
+    echo ""
+    echo "ERROR: Ports 8000 and/or 3000 are still in use after $MAX_WAIT seconds!"
+    echo "Port 8000 in use: $([ ! -z "$PORT8000_IN_USE" ] && echo "YES (PID: $PORT8000_IN_USE)" || echo "NO")"
+    echo "Port 3000 in use: $([ ! -z "$PORT3000_IN_USE" ] && echo "YES (PID: $PORT3000_IN_USE)" || echo "NO")"
     echo "Please manually kill processes and try again."
+    echo "You can use: lsof -ti:8000,3000 | xargs kill -9"
     exit 1
 fi
 
 # Wait a bit more to ensure ports are fully released
+echo "Ports confirmed free. Waiting 2 more seconds..."
 sleep 2
 
 # Activate virtual environment
@@ -82,7 +118,8 @@ echo $BACKEND_PID > .app_pids.txt
 # Start frontend dev server in background
 echo "Starting frontend dev server..."
 cd frontend
-npm run dev > ../logs/frontend.log 2>&1 &
+# Use strict port - will fail if 3000 is not available
+npm run dev -- --port 3000 --strictPort > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 cd ..
 echo $FRONTEND_PID >> .app_pids.txt

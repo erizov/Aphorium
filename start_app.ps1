@@ -113,7 +113,7 @@ $backendProcess.Id | Out-File -FilePath $pidFile -Encoding utf8
 Write-Host "Starting frontend dev server..." -ForegroundColor Green
 $frontendScript = @"
 cd '$PWD\frontend'
-npm run dev
+npm run dev -- --port 3000 --strictPort
 pause
 "@
 $frontendScript | Out-File -FilePath "start_frontend.ps1" -Encoding utf8
