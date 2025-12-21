@@ -50,16 +50,22 @@ class QuoteRepository:
             normalized_text = text.strip().lower()
             
             # Check for existing quote with same text, author, and language
-            # Use database-specific functions for text comparison
-            existing = (
+            # Get all quotes with same author and language, then compare in Python
+            # This is more reliable across different database backends
+            candidates = (
                 self.db.query(Quote)
                 .filter(
-                    func.lower(func.ltrim(func.rtrim(Quote.text))) == normalized_text,
                     Quote.author_id == author_id,
                     Quote.language == language
                 )
-                .first()
+                .all()
             )
+            
+            existing = None
+            for candidate in candidates:
+                if candidate.text.strip().lower() == normalized_text:
+                    existing = candidate
+                    break
             
             if existing:
                 logger.debug(
