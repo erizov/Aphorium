@@ -176,7 +176,8 @@ Write-Host "Starting backend API server..." -ForegroundColor Green
 Write-Host "Starting frontend dev server..." -ForegroundColor Green
 `$frontendJob = Start-Job -ScriptBlock {
     Set-Location '$PWD\frontend'
-    npm run dev
+    # Use strict port - will fail if 3000 is not available
+    npm run dev -- --port 3000 --strictPort
 }
 
 # Save PIDs

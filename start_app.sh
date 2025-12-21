@@ -98,7 +98,8 @@ echo $BACKEND_PID > $PID_FILE
 # Start frontend dev server
 echo "Starting frontend dev server..."
 cd frontend
-npm run dev > ../logs/frontend.log 2>&1 &
+# Use strict port - will fail if 3000 is not available
+npm run dev -- --port 3000 --strictPort > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 cd ..
 echo $FRONTEND_PID >> $PID_FILE
