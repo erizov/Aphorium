@@ -176,6 +176,64 @@ class SearchService:
             # This prevents 500 errors when queries fail
             return []
     
+    def _find_matching_quote_by_author(
+        self,
+        author_name: Optional[str],
+        target_language: str,
+        source_id: Optional[int] = None
+    ) -> Optional[Quote]:
+        """
+        Find a quote from the same author in the target language.
+        
+        Args:
+            author_name: Name of the author to match
+            target_language: Target language ('en' or 'ru')
+            source_id: Optional source ID to match (if available)
+            
+        Returns:
+            Matching quote or None if not found
+        """
+        if not author_name:
+            return None
+        
+        try:
+            from models import Author
+            
+            # Find author in target language by name
+            author = (
+                self.db.query(Author)
+                .filter(
+                    Author.name == author_name,
+                    Author.language == target_language
+                )
+                .first()
+            )
+            
+            if not author:
+                return None
+            
+            # Try to find quote from same author and optionally same source
+            query = (
+                self.db.query(Quote)
+                .filter(
+                    Quote.author_id == author.id,
+                    Quote.language == target_language
+                )
+            )
+            
+            # If source_id provided, prefer quotes from same source
+            if source_id:
+                same_source = query.filter(Quote.source_id == source_id).first()
+                if same_source:
+                    return same_source
+            
+            # Otherwise, just get any quote from this author
+            return query.first()
+            
+        except Exception as e:
+            logger.warning(f"Failed to find matching quote by author: {e}")
+            return None
+    
     def _translate_quote_text(self, text: str, target_lang: str) -> Optional[str]:
         """
         Translate quote text word-by-word using translation dictionary.
