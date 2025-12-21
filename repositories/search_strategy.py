@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
 from models import Quote
-from utils.text_utils import detect_language
+from utils.text_utils import detect_language, sanitize_search_query, escape_like_pattern
 from logger_config import logger
 
 
