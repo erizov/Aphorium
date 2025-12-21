@@ -260,6 +260,22 @@ Write-Host "Starting backend API server..." -ForegroundColor Green
 
 # Start frontend in background job
 Write-Host "Starting frontend dev server..." -ForegroundColor Green
+
+# Final check: make absolutely sure port 3000 is free
+`$port3000Check = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
+if (`$port3000Check) {
+    `$pid = `$port3000Check | Select-Object -ExpandProperty OwningProcess -Unique
+    Write-Host "  WARNING: Port 3000 still in use (PID: `$pid), killing..." -ForegroundColor Yellow
+    Stop-Process -Id `$pid -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    `$port3000Check = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
+    if (`$port3000Check) {
+        Write-Host "  ERROR: Port 3000 still in use after kill attempt!" -ForegroundColor Red
+        Write-Host "  Please manually kill the process and try again" -ForegroundColor Red
+        exit 1
+    }
+}
+
 `$frontendJob = Start-Job -ScriptBlock {
     Set-Location '$PWD\frontend'
     # Use strict port - will fail if 3000 is not available

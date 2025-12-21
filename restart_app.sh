@@ -237,6 +237,23 @@ echo $BACKEND_PID > .app_pids.txt
 
 # Start frontend dev server in background
 echo "Starting frontend dev server..."
+
+# Final check: make absolutely sure port 3000 is free
+if command -v lsof >/dev/null 2>&1; then
+    PORT3000_CHECK=$(lsof -ti:3000 2>/dev/null || echo "")
+    if [ ! -z "$PORT3000_CHECK" ]; then
+        echo "  WARNING: Port 3000 still in use (PID: $PORT3000_CHECK), killing..."
+        kill -9 $PORT3000_CHECK 2>/dev/null
+        sleep 1
+        PORT3000_CHECK=$(lsof -ti:3000 2>/dev/null || echo "")
+        if [ ! -z "$PORT3000_CHECK" ]; then
+            echo "  ERROR: Port 3000 still in use after kill attempt!"
+            echo "  Please manually kill process $PORT3000_CHECK and try again"
+            exit 1
+        fi
+    fi
+fi
+
 cd frontend
 # Use strict port - will fail if 3000 is not available
 npm run dev -- --port 3000 --strictPort > ../logs/frontend.log 2>&1 &
