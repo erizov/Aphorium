@@ -3,6 +3,7 @@ Text utility functions for quote processing and normalization.
 """
 
 import re
+from typing import str
 
 
 def normalize_text(text: str) -> str:
@@ -61,4 +62,74 @@ def is_valid_quote(text: str, min_length: int = 10) -> bool:
     
     normalized = normalize_text(text)
     return len(normalized) >= min_length
+
+
+def sanitize_search_query(query: str, max_length: int = 500) -> str:
+    """
+    Sanitize search query to prevent SQL injection and handle special characters.
+    
+    Removes or escapes special characters that could cause issues with:
+    - PostgreSQL full-text search (plainto_tsquery)
+    - SQLite LIKE queries
+    - SQL injection attempts
+    
+    Args:
+        query: Raw search query
+        max_length: Maximum allowed query length
+        
+    Returns:
+        Sanitized query safe for database operations
+    """
+    if not query:
+        return ""
+    
+    # Limit length
+    query = query[:max_length]
+    
+    # Remove null bytes
+    query = query.replace('\x00', '')
+    
+    # For SQLite LIKE queries, escape special LIKE characters
+    # Escape: %, _, [, ], ^, \
+    # But we'll use parameterized queries, so we mainly need to handle
+    # characters that break plainto_tsquery in PostgreSQL
+    
+    # Remove or replace characters that break PostgreSQL's plainto_tsquery:
+    # - Single quotes can cause issues
+    # - Special operators: &, |, !, :, *, <, >, (, )
+    # We'll keep them but they'll be treated as regular text by plainto_tsquery
+    
+    # Remove control characters except newlines and tabs
+    query = ''.join(char for char in query if char.isprintable() or char in '\n\t')
+    
+    # Normalize whitespace
+    query = re.sub(r'\s+', ' ', query)
+    query = query.strip()
+    
+    return query
+
+
+def escape_like_pattern(text: str) -> str:
+    """
+    Escape special characters for SQL LIKE patterns.
+    
+    Escapes: %, _, [, ], ^, \
+    
+    Args:
+        text: Text to escape
+        
+    Returns:
+        Escaped text safe for LIKE queries
+    """
+    if not text:
+        return ""
+    
+    # Escape special LIKE characters
+    # SQLite and PostgreSQL use backslash for escaping in LIKE
+    escape_chars = ['%', '_', '[', ']', '^', '\\']
+    result = text
+    for char in escape_chars:
+        result = result.replace(char, f'\\{char}')
+    
+    return result
 

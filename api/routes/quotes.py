@@ -45,6 +45,14 @@ def search_quotes(
     try:
         if not q or not q.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
+        
+        # Validate query length (prevent extremely long queries)
+        MAX_QUERY_LENGTH = 500
+        if len(q) > MAX_QUERY_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Query too long. Maximum length is {MAX_QUERY_LENGTH} characters."
+            )
 
         search_service = SearchService(db)
         # Always search both languages unless explicitly filtered
@@ -61,8 +69,11 @@ def search_quotes(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Search endpoint error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Search endpoint error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Search failed: {str(e)}"
+        )
 
 
 @router.get("/{quote_id}", response_model=QuoteWithTranslationsSchema)

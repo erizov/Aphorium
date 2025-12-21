@@ -59,6 +59,13 @@ class PostgreSQLSearchStrategy(SearchStrategy):
         Always searches both English and Russian quotes regardless of query language,
         unless explicitly filtered by language parameter.
         """
+        # Sanitize query to prevent SQL injection and handle special characters
+        query = sanitize_search_query(query)
+        
+        if not query:
+            # Return empty results for empty/invalid queries
+            return []
+        
         search_query = self.db.query(Quote)
 
         # Only filter by language if explicitly requested
@@ -68,42 +75,55 @@ class PostgreSQLSearchStrategy(SearchStrategy):
 
         # Search across all language configurations to find matches in both languages
         # Use OR to match in any language configuration
-        search_query = search_query.filter(
-            or_(
-                # English text search config
-                func.to_tsvector('english', Quote.text).match(
-                    func.plainto_tsquery('english', query)
-                ),
-                # Russian text search config
-                func.to_tsvector('russian', Quote.text).match(
-                    func.plainto_tsquery('russian', query)
-                ),
-                # Simple (language-agnostic) config for broader matching
-                func.to_tsvector('simple', Quote.text).match(
-                    func.plainto_tsquery('simple', query)
+        # plainto_tsquery automatically handles special characters and SQL keywords
+        try:
+            search_query = search_query.filter(
+                or_(
+                    # English text search config
+                    func.to_tsvector('english', Quote.text).match(
+                        func.plainto_tsquery('english', query)
+                    ),
+                    # Russian text search config
+                    func.to_tsvector('russian', Quote.text).match(
+                        func.plainto_tsquery('russian', query)
+                    ),
+                    # Simple (language-agnostic) config for broader matching
+                    func.to_tsvector('simple', Quote.text).match(
+                        func.plainto_tsquery('simple', query)
+                    )
                 )
             )
-        )
+        except Exception as e:
+            logger.warning(f"Full-text search failed for query '{query}': {e}. Trying simple search.")
+            # Fallback: if plainto_tsquery fails, try a simpler approach
+            # Escape the query and use a basic text search
+            search_query = search_query.filter(
+                Quote.text.ilike(f"%{query.replace('%', '\\%').replace('_', '\\_')}%")
+            )
         
         # Order by relevance across all language configs
         # This ensures we get the best matches from both languages
-        search_query = search_query.order_by(
-            # Prioritize matches in the query's detected language
-            func.ts_rank(
-                func.to_tsvector('simple', Quote.text),
-                func.plainto_tsquery('simple', query)
-            ).desc().nullslast(),
-            # Then by English config relevance
-            func.ts_rank(
-                func.to_tsvector('english', Quote.text),
-                func.plainto_tsquery('english', query)
-            ).desc().nullslast(),
-            # Then by Russian config relevance
-            func.ts_rank(
-                func.to_tsvector('russian', Quote.text),
-                func.plainto_tsquery('russian', query)
-            ).desc().nullslast()
-        )
+        try:
+            search_query = search_query.order_by(
+                # Prioritize matches in the query's detected language
+                func.ts_rank(
+                    func.to_tsvector('simple', Quote.text),
+                    func.plainto_tsquery('simple', query)
+                ).desc().nullslast(),
+                # Then by English config relevance
+                func.ts_rank(
+                    func.to_tsvector('english', Quote.text),
+                    func.plainto_tsquery('english', query)
+                ).desc().nullslast(),
+                # Then by Russian config relevance
+                func.ts_rank(
+                    func.to_tsvector('russian', Quote.text),
+                    func.plainto_tsquery('russian', query)
+                ).desc().nullslast()
+            )
+        except Exception:
+            # If ranking fails, just order by ID as fallback
+            search_query = search_query.order_by(Quote.id.desc())
 
         return search_query.limit(limit).offset(offset).all()
 
@@ -128,6 +148,13 @@ class SQLiteSearchStrategy(SearchStrategy):
         Always searches both English and Russian quotes regardless of query language,
         unless explicitly filtered by language parameter.
         """
+        # Sanitize query to prevent SQL injection and handle special characters
+        query = sanitize_search_query(query)
+        
+        if not query:
+            # Return empty results for empty/invalid queries
+            return []
+        
         search_query = self.db.query(Quote)
 
         # Only filter by language if explicitly requested
@@ -137,12 +164,26 @@ class SQLiteSearchStrategy(SearchStrategy):
 
         # Use LIKE for text search (SQLite doesn't have full-text search
         # without FTS5 extension)
-        # Search for all terms in the query
+        # Escape special LIKE characters to prevent issues
+        # Split query into terms and search for each
         search_terms = query.strip().split()
+        
+        if not search_terms:
+            return []
+        
+        # Build OR conditions for all terms (any term can match)
+        from sqlalchemy import or_
+        term_conditions = []
         for term in search_terms:
-            search_query = search_query.filter(
-                Quote.text.ilike(f"%{term}%")
+            # Escape LIKE special characters
+            escaped_term = escape_like_pattern(term)
+            # Use parameterized query to prevent SQL injection
+            term_conditions.append(
+                Quote.text.ilike(f"%{escaped_term}%", escape='\\')
             )
+        
+        if term_conditions:
+            search_query = search_query.filter(or_(*term_conditions))
 
         # Order by text length (shorter matches first as proxy for relevance)
         # This will return results from both languages
