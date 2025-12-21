@@ -55,13 +55,36 @@ class SearchService:
             if language and language != "both":
                 lang_filter = language
 
+            # Get both original and translated query for bilingual search
+            original_query, translated_query = get_bilingual_search_queries(query)
+            
+            # Search with both queries to find results in both languages
             # Search with higher limit to get results from both languages
             search_limit = limit * 3 if not lang_filter else limit * 2
-            quotes = self.quote_repo.search(
-                query=query,
+            
+            # Search with original query
+            quotes_original = self.quote_repo.search(
+                query=original_query,
                 language=lang_filter,
                 limit=search_limit
             )
+            
+            # Search with translated query (if different from original)
+            quotes_translated = []
+            if translated_query.lower() != original_query.lower():
+                quotes_translated = self.quote_repo.search(
+                    query=translated_query,
+                    language=lang_filter,
+                    limit=search_limit
+                )
+            
+            # Combine results, removing duplicates by ID
+            seen_ids = set()
+            quotes = []
+            for quote in quotes_original + quotes_translated:
+                if quote.id not in seen_ids:
+                    quotes.append(quote)
+                    seen_ids.add(quote.id)
 
             # Enrich with translation info and separate by language
             en_quotes = []
