@@ -86,8 +86,15 @@ fi
 
 # Check if ports 8000 and 3000 are in use - only wait if they are
 echo "Checking if ports 8000 and 3000 are in use..."
-PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
-PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
+if command -v lsof >/dev/null 2>&1; then
+    PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null || echo "")
+    PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null || echo "")
+else
+    # lsof not available, assume ports are free
+    PORT8000_IN_USE=""
+    PORT3000_IN_USE=""
+    echo "  lsof not available, assuming ports are free"
+fi
 
 # Only wait if ports are actually in use
 if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
