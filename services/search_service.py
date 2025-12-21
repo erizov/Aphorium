@@ -134,21 +134,31 @@ class SearchService:
                         else:
                             break
                 
-                # Step 3: If we still don't have results from both languages and have room,
-                # add some quotes from the missing language to ensure bilingual results
+                # Step 3: Ensure both languages are represented
+                # Count languages in current results
                 en_count = len([r for r in results if r['language'] == 'en'])
                 ru_count = len([r for r in results if r['language'] == 'ru'])
                 
                 # If we have results but missing one language, add some from missing language
-                if len(results) > 0 and len(results) < limit:
+                # This should happen even if we've hit the limit - we'll replace some results
+                if len(results) > 0:
                     if ru_count == 0:
-                        # Add some Russian quotes
+                        # No Russian quotes - add some, even if we need to remove some English ones
                         ru_quotes_models = self.db.query(Quote).filter(
                             Quote.language == 'ru'
-                        ).order_by(func.random()).limit(
-                            min(3, limit - len(results))
-                        ).all()
+                        ).order_by(func.random()).limit(min(5, max(3, limit // 3))).all()
                         
+                        # Remove some English quotes to make room for Russian ones
+                        # Keep at least half English if possible
+                        en_to_remove = min(len(ru_quotes_models), en_count // 2) if en_count > 3 else 0
+                        if en_to_remove > 0:
+                            # Remove English quotes from the end (keep the best matches)
+                            results = [r for r in results if r['language'] != 'en'][:limit - en_to_remove]
+                            # Add back some English quotes
+                            en_kept = [r for r in en_quotes if r not in results][:en_to_remove]
+                            results = en_kept + results
+                        
+                        # Add Russian quotes
                         for quote in ru_quotes_models:
                             if len(results) >= limit:
                                 break
@@ -157,14 +167,26 @@ class SearchService:
                             quote_dict["translation_count"] = 0
                             if not any(r['id'] == quote_dict['id'] for r in results):
                                 results.append(quote_dict)
+                        
+                        # Trim to limit if we exceeded it
+                        results = results[:limit]
+                        
                     elif en_count == 0:
-                        # Add some English quotes
+                        # No English quotes - add some, even if we need to remove some Russian ones
                         en_quotes_models = self.db.query(Quote).filter(
                             Quote.language == 'en'
-                        ).order_by(func.random()).limit(
-                            min(3, limit - len(results))
-                        ).all()
+                        ).order_by(func.random()).limit(min(5, max(3, limit // 3))).all()
                         
+                        # Remove some Russian quotes to make room for English ones
+                        ru_to_remove = min(len(en_quotes_models), ru_count // 2) if ru_count > 3 else 0
+                        if ru_to_remove > 0:
+                            # Remove Russian quotes from the end
+                            results = [r for r in results if r['language'] != 'ru'][:limit - ru_to_remove]
+                            # Add back some Russian quotes
+                            ru_kept = [r for r in ru_quotes if r not in results][:ru_to_remove]
+                            results = ru_kept + results
+                        
+                        # Add English quotes
                         for quote in en_quotes_models:
                             if len(results) >= limit:
                                 break
@@ -173,6 +195,9 @@ class SearchService:
                             quote_dict["translation_count"] = 0
                             if not any(r['id'] == quote_dict['id'] for r in results):
                                 results.append(quote_dict)
+                        
+                        # Trim to limit if we exceeded it
+                        results = results[:limit]
             else:
                 # Language filter specified - use original logic
                 if prefer_bilingual:
