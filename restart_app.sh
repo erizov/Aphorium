@@ -185,6 +185,12 @@ if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
     if command -v lsof >/dev/null 2>&1; then
         PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null || echo "")
         PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null || echo "")
+    elif command -v netstat >/dev/null 2>&1; then
+        PORT8000_IN_USE=$(netstat -ano 2>/dev/null | grep ":8000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+        PORT3000_IN_USE=$(netstat -ano 2>/dev/null | grep ":3000 " | grep LISTENING | awk '{print $5}' | head -1 || echo "")
+    elif command -v powershell >/dev/null 2>&1; then
+        PORT8000_IN_USE=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
+        PORT3000_IN_USE=$(powershell -Command "\$conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if (\$conn) { \$conn.OwningProcess } else { '' }" 2>/dev/null || echo "")
     else
         PORT8000_IN_USE=""
         PORT3000_IN_USE=""
