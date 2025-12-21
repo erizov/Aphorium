@@ -3,7 +3,6 @@ Text utility functions for quote processing and normalization.
 """
 
 import re
-from typing import str
 
 
 def normalize_text(text: str) -> str:
