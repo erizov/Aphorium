@@ -104,8 +104,14 @@ if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
     WAITED=0
     
     while [ $WAITED -lt $MAX_WAIT ]; do
-        PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
-        PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
+        if command -v lsof >/dev/null 2>&1; then
+            PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null || echo "")
+            PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null || echo "")
+        else
+            # lsof not available, assume ports are free and exit loop
+            PORT8000_IN_USE=""
+            PORT3000_IN_USE=""
+        fi
         
         if [ -z "$PORT8000_IN_USE" ] && [ -z "$PORT3000_IN_USE" ]; then
             echo "All ports are free!"
