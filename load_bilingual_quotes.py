@@ -33,6 +33,19 @@ EXTENDED_BILINGUAL_AUTHORS = {
         "Martin Luther King Jr.", "Maya Angelou", "Toni Morrison",
         "Ernest Hemingway", "F. Scott Fitzgerald", "J.D. Salinger",
         "Kurt Vonnegut", "George Bernard Shaw", "Bertrand Russell",
+        "Voltaire", "Jean-Jacques Rousseau", "Immanuel Kant",
+        "Plato", "Aristotle", "Socrates", "Confucius",
+        "Rumi", "Khalil Gibran", "Pablo Neruda",
+        "Gabriel García Márquez", "Jorge Luis Borges",
+        "Franz Kafka", "Marcel Proust", "James Joyce",
+        "T.S. Eliot", "W.B. Yeats", "William Blake",
+        "John Keats", "Percy Bysshe Shelley", "Lord Byron",
+        "Emily Brontë", "Charlotte Brontë", "Thomas Hardy",
+        "D.H. Lawrence", "Aldous Huxley", "Ray Bradbury",
+        "Isaac Asimov", "Arthur C. Clarke", "J.R.R. Tolkien",
+        "C.S. Lewis", "J.K. Rowling", "Neil Gaiman",
+        "Maya Angelou", "Langston Hughes", "Zora Neale Hurston",
+        "Chinua Achebe", "Salman Rushdie", "Haruki Murakami",
     ],
     "ru": [
         # Russian authors
@@ -49,6 +62,21 @@ EXTENDED_BILINGUAL_AUTHORS = {
         
         # More authors
         "Фридрих Ницше", "Альберт Эйнштейн", "Уинстон Черчилль",
+        "Вольтер", "Жан-Жак Руссо", "Иммануил Кант",
+        "Платон", "Аристотель", "Сократ", "Конфуций",
+        "Руми", "Халиль Джебран", "Пабло Неруда",
+        "Габриэль Гарсиа Маркес", "Хорхе Луис Борхес",
+        "Франц Кафка", "Марсель Пруст", "Джеймс Джойс",
+        "Т.С. Элиот", "У.Б. Йейтс", "Уильям Блейк",
+        "Джон Китс", "Перси Биши Шелли", "Лорд Байрон",
+        "Эмили Бронте", "Шарлотта Бронте", "Томас Харди",
+        "Д.Г. Лоуренс", "Олдос Хаксли", "Рэй Брэдбери",
+        "Айзек Азимов", "Артур Кларк", "Дж.Р.Р. Толкин",
+        "К.С. Льюис", "Дж.К. Роулинг", "Нил Гейман",
+        "Николай Некрасов", "Афанасий Фет", "Фёдор Тютчев",
+        "Валерий Брюсов", "Константин Бальмонт", "Иннокентий Анненский",
+        "Велимир Хлебников", "Осип Мандельштам", "Борис Акунин",
+        "Виктор Пелевин", "Людмила Улицкая", "Татьяна Толстая",
     ]
 }
 
