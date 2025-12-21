@@ -91,7 +91,9 @@ class SearchService:
                     
                     # Look for matching Russian quote from same author
                     ru_quote = self._find_matching_quote_by_author(
-                        author_name, 'ru', quote.source_id if quote.source else None
+                        author_name, 'ru', 
+                        quote.source_id if quote.source else None,
+                        quote.text
                     )
                     
                     if ru_quote:
@@ -123,7 +125,9 @@ class SearchService:
                     
                     # Look for matching English quote from same author
                     en_quote = self._find_matching_quote_by_author(
-                        author_name, 'en', quote.source_id if quote.source else None
+                        author_name, 'en',
+                        quote.source_id if quote.source else None,
+                        quote.text
                     )
                     
                     if en_quote:
@@ -180,15 +184,19 @@ class SearchService:
         self,
         author_name: Optional[str],
         target_language: str,
-        source_id: Optional[int] = None
+        source_id: Optional[int] = None,
+        source_text: Optional[str] = None
     ) -> Optional[Quote]:
         """
         Find a quote from the same author in the target language.
+        
+        Uses text similarity matching: if 4+ words match, considers it an exact match.
         
         Args:
             author_name: Name of the author to match
             target_language: Target language ('en' or 'ru')
             source_id: Optional source ID to match (if available)
+            source_text: Optional source quote text for similarity matching
             
         Returns:
             Matching quote or None if not found
@@ -212,23 +220,63 @@ class SearchService:
             if not author:
                 return None
             
-            # Try to find quote from same author and optionally same source
-            query = (
+            # Get all quotes from this author in target language
+            quotes = (
                 self.db.query(Quote)
                 .filter(
                     Quote.author_id == author.id,
                     Quote.language == target_language
                 )
+                .all()
             )
             
-            # If source_id provided, prefer quotes from same source
-            if source_id:
-                same_source = query.filter(Quote.source_id == source_id).first()
-                if same_source:
-                    return same_source
+            if not quotes:
+                return None
             
-            # Otherwise, just get any quote from this author
-            return query.first()
+            # If we have source text, do similarity matching
+            if source_text:
+                source_words = set(
+                    word.lower().strip('.,!?;:()[]{}"\'')
+                    for word in source_text.split()
+                    if len(word.strip('.,!?;:()[]{}"\'')) > 0
+                )
+                
+                best_match = None
+                best_match_count = 0
+                
+                for quote in quotes:
+                    quote_words = set(
+                        word.lower().strip('.,!?;:()[]{}"\'')
+                        for word in quote.text.split()
+                        if len(word.strip('.,!?;:()[]{}"\'')) > 0
+                    )
+                    
+                    # Count matching words
+                    matching_words = source_words & quote_words
+                    match_count = len(matching_words)
+                    
+                    # If 4+ words match, consider it an exact match
+                    if match_count >= 4:
+                        # Prefer quotes from same source if available
+                        if source_id and quote.source_id == source_id:
+                            return quote
+                        # Track best match
+                        if match_count > best_match_count:
+                            best_match = quote
+                            best_match_count = match_count
+                
+                # Return best match if we found one with 4+ words
+                if best_match_count >= 4:
+                    return best_match
+            
+            # Fallback: if source_id provided, prefer quotes from same source
+            if source_id:
+                for quote in quotes:
+                    if quote.source_id == source_id:
+                        return quote
+            
+            # Otherwise, return first quote from this author
+            return quotes[0]
             
         except Exception as e:
             logger.warning(f"Failed to find matching quote by author: {e}")

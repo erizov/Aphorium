@@ -33,7 +33,7 @@ class QuoteRepository:
         language: str = "en"
     ) -> Quote:
         """
-        Create a new quote.
+        Create a new quote, checking for duplicates first.
 
         Args:
             text: Quote text
@@ -42,9 +42,31 @@ class QuoteRepository:
             language: Language code ('en' or 'ru')
 
         Returns:
-            Created quote object
+            Created quote object or existing quote if duplicate found
         """
         try:
+            # Normalize text for comparison (strip, lowercase)
+            normalized_text = text.strip().lower()
+            
+            # Check for existing quote with same text, author, and language
+            existing = (
+                self.db.query(Quote)
+                .filter(
+                    func.lower(func.trim(Quote.text)) == normalized_text,
+                    Quote.author_id == author_id,
+                    Quote.language == language
+                )
+                .first()
+            )
+            
+            if existing:
+                logger.debug(
+                    f"Duplicate quote found (ID: {existing.id}), "
+                    f"returning existing quote"
+                )
+                return existing
+            
+            # Create new quote
             quote = Quote(
                 text=text,
                 author_id=author_id,
