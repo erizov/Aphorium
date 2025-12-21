@@ -13,13 +13,18 @@ echo "Stopping previous instances..."
 # Kill ALL processes that might be related:
 # 1. Processes on ports 8000, 3000, 3001, 3002, etc. (in case frontend tried different ports)
 echo "Killing processes on ports..."
-for port in {8000..3010}; do
-    PID=$(lsof -ti:$port 2>/dev/null)
-    if [ ! -z "$PID" ]; then
-        echo "  Killing process on port $port (PID: $PID)..."
-        kill -9 $PID 2>/dev/null
-    fi
-done
+if command -v lsof >/dev/null 2>&1; then
+    # Check ports 8000 and 3000-3010
+    for port in 8000 $(seq 3000 3010); do
+        PID=$(lsof -ti:$port 2>/dev/null || echo "")
+        if [ ! -z "$PID" ]; then
+            echo "  Killing process on port $port (PID: $PID)..."
+            kill -9 $PID 2>/dev/null
+        fi
+    done
+else
+    echo "  lsof not available, skipping port-based process killing"
+fi
 
 # 2. Kill all node processes (frontend)
 echo "Killing all node processes..."
@@ -113,9 +118,9 @@ if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
         
         # Also kill any remaining node/python processes using our ports
         if command -v lsof >/dev/null 2>&1; then
-            # Kill node processes on our ports
+            # Kill processes on our ports
             for port in 8000 3000; do
-                PID=$(lsof -ti:$port 2>/dev/null)
+                PID=$(lsof -ti:$port 2>/dev/null || echo "")
                 if [ ! -z "$PID" ]; then
                     kill -9 $PID 2>/dev/null
                 fi
@@ -128,8 +133,13 @@ if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
     done
     
     # Final check - fail if ports still in use
-    PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null)
-    PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null)
+    if command -v lsof >/dev/null 2>&1; then
+        PORT8000_IN_USE=$(lsof -ti:8000 2>/dev/null || echo "")
+        PORT3000_IN_USE=$(lsof -ti:3000 2>/dev/null || echo "")
+    else
+        PORT8000_IN_USE=""
+        PORT3000_IN_USE=""
+    fi
     
     if [ ! -z "$PORT8000_IN_USE" ] || [ ! -z "$PORT3000_IN_USE" ]; then
         echo ""

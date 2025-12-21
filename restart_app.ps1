@@ -12,15 +12,25 @@ Write-Host "Stopping previous instances..." -ForegroundColor Yellow
 # Kill ALL processes that might be related:
 # 1. Processes on ports 8000, 3000, 3001, 3002, 3003, etc. (in case frontend tried different ports)
 Write-Host "Killing processes on ports..." -ForegroundColor Yellow
-for ($port = 8000; $port -le 3010; $port++) {
-    $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-    if ($connections) {
-        $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
-        foreach ($pid in $pids) {
-            Write-Host "  Killing process on port $port (PID: $pid)..." -ForegroundColor Yellow
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+$portsToCheck = @(8000) + (3000..3010)
+$foundAny = $false
+foreach ($port in $portsToCheck) {
+    try {
+        $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+        if ($connections) {
+            $foundAny = $true
+            $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($pid in $pids) {
+                Write-Host "  Killing process on port $port (PID: $pid)..." -ForegroundColor Yellow
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
         }
+    } catch {
+        # Port check failed, continue
     }
+}
+if (-not $foundAny) {
+    Write-Host "  No processes found on ports 8000, 3000-3010" -ForegroundColor Gray
 }
 
 # 2. Kill all node processes (frontend)
