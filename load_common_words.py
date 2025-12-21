@@ -88,7 +88,9 @@ def main():
         
         if not translations:
             logger.info("No CSV found, generating common words...")
+            logger.info("Run 'python generate_common_words.py' first to create CSV with 10k words")
             translations = generate_common_words()
+            logger.warning(f"Only loaded {len(translations)} words. Generate CSV for full 10k words.")
         
         # Load into database
         logger.info(f"Loading {len(translations)} translations...")
