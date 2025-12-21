@@ -184,11 +184,12 @@ class SearchService:
             Translated text or None if translation not possible
         """
         try:
-            from utils.translator import translate_query
+            from utils.translator import translate_word
             
             # Simple word-by-word translation
             words = text.split()
             translated_words = []
+            translated_count = 0
             
             for word in words:
                 # Clean word (remove punctuation)
@@ -197,20 +198,24 @@ class SearchService:
                     translated_words.append(word)
                     continue
                 
+                # Detect source language
+                source_lang = 'en' if target_lang == 'ru' else 'ru'
+                
                 # Try to translate
-                translation = translate_query(clean_word, self.db)
+                translation = translate_word(self.db, clean_word, source_lang)
                 if translation and translation.lower() != clean_word.lower():
                     # Replace word with translation, preserving punctuation
                     if word[0].isupper():
                         translation = translation.capitalize()
                     translated_words.append(word.replace(clean_word, translation))
+                    translated_count += 1
                 else:
                     translated_words.append(word)
             
             translated_text = ' '.join(translated_words)
             
             # Only return if we actually translated something
-            if translated_text.lower() != text.lower():
+            if translated_count > 0 and translated_text.lower() != text.lower():
                 return translated_text
             
             return None
