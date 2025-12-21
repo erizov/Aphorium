@@ -69,9 +69,14 @@ class SearchService:
             
             # Build bilingual pairs
             results = []
-            seen_pairs = set()  # Track pairs we've already added
+            seen_pairs = set()  # Track pairs we've already added (en_id, ru_id)
+            seen_quote_ids = set()  # Track individual quote IDs to prevent duplicates
             
             for quote in quotes:
+                # Skip if we've already seen this quote ID
+                if quote.id in seen_quote_ids:
+                    continue
+                
                 # Build pair dictionary - EN always left, RU always right
                 pair_dict = {
                     "english": None,
@@ -88,6 +93,7 @@ class SearchService:
                 if quote.language == 'en':
                     # English quote goes on the left
                     pair_dict["english"] = self._quote_to_dict(quote)
+                    seen_quote_ids.add(quote.id)
                     
                     # Look for matching Russian quote from same author
                     # Use translation only for matching, not for display
@@ -98,14 +104,19 @@ class SearchService:
                     )
                     
                     if ru_quote:
+                        # Skip if we've already seen this RU quote
+                        if ru_quote.id in seen_quote_ids:
+                            continue
                         # Found matching RU quote in database - use it
                         pair_dict["russian"] = self._quote_to_dict(ru_quote)
+                        seen_quote_ids.add(ru_quote.id)
                     # If no matching RU quote found, leave russian as None
                     # Do NOT translate - only show original quotes from database
                 
                 elif quote.language == 'ru':
                     # Russian quote goes on the right
                     pair_dict["russian"] = self._quote_to_dict(quote)
+                    seen_quote_ids.add(quote.id)
                     
                     # Look for matching English quote from same author
                     # Use translation only for matching, not for display
@@ -116,8 +127,12 @@ class SearchService:
                     )
                     
                     if en_quote:
+                        # Skip if we've already seen this EN quote
+                        if en_quote.id in seen_quote_ids:
+                            continue
                         # Found matching EN quote in database - use it
                         pair_dict["english"] = self._quote_to_dict(en_quote)
+                        seen_quote_ids.add(en_quote.id)
                     # If no matching EN quote found, leave english as None
                     # Do NOT translate - only show original quotes from database
                 
