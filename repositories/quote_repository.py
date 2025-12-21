@@ -7,7 +7,6 @@ Handles CRUD operations and search queries for quotes.
 from typing import List, Optional
 from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy.sql import func as sql_func
 
 from models import Quote, Author, Source, QuoteTranslation
 from repositories.search_strategy import get_search_strategy
