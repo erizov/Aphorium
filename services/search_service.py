@@ -208,21 +208,14 @@ class SearchService:
                     source_lang = 'en' if target_lang == 'ru' else 'ru'
                 
                 # Try to translate using repository
-                translation_entry = repo.get_by_word(clean_word.lower(), source_lang)
-                if translation_entry:
-                    if source_lang == 'en':
-                        translation = translation_entry.word_ru
-                    else:
-                        translation = translation_entry.word_en
-                    
-                    if translation and translation.lower() != clean_word.lower():
-                        # Replace word with translation, preserving punctuation
-                        if word[0].isupper():
-                            translation = translation.capitalize()
-                        translated_words.append(word.replace(clean_word, translation))
-                        translated_count += 1
-                    else:
-                        translated_words.append(word)
+                translation = repo.get_translation(clean_word.lower())
+                
+                if translation and translation.lower() != clean_word.lower():
+                    # Replace word with translation, preserving punctuation
+                    if word[0].isupper():
+                        translation = translation.capitalize()
+                    translated_words.append(word.replace(clean_word, translation))
+                    translated_count += 1
                 else:
                     translated_words.append(word)
             
