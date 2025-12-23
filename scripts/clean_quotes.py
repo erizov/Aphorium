@@ -17,7 +17,7 @@ from typing import List, Tuple
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import SessionLocal
-from models import Quote
+from models import Quote, Author
 from logger_config import logger
 
 
@@ -568,17 +568,97 @@ def identify_bad_quotes(db) -> List[Tuple[int, str, str]]:
     bad_quotes = []
     quotes = db.query(Quote).all()
     
+    # Load all author names from database for pattern 3
+    all_authors = db.query(Author.name).all()
+    author_names = {author[0].lower() for author in all_authors}
+    logger.info(f"Loaded {len(author_names)} author names for matching")
+    
+    # English month names
+    english_months = [
+        r'January', r'February', r'March', r'April', r'May', r'June',
+        r'July', r'August', r'September', r'October', r'November', r'December',
+        r'Jan', r'Feb', r'Mar', r'Apr', r'Jun', r'Jul', r'Aug',
+        r'Sep', r'Sept', r'Oct', r'Nov', r'Dec'
+    ]
+    
+    # Russian month names
+    russian_months = [
+        r'января', r'февраля', r'марта', r'апреля', r'мая', r'июня',
+        r'июля', r'августа', r'сентября', r'октября', r'ноября', r'декабря',
+        r'янв', r'фев', r'мар', r'апр', r'май', r'июн', r'июл',
+        r'авг', r'сен', r'окт', r'ноя', r'дек'
+    ]
+    
     for quote in quotes:
         text = quote.text.strip()
+        reason = None
         
-        if is_reference(text):
-            bad_quotes.append((quote.id, text, "Reference/citation pattern"))
+        # Pattern 1: 4-digit numbers in parentheses (1817—1875) or (1817-1875)
+        # Matches: (1817—1875), (1817-1875), (1817–1875), (1817 - 1875), (1817 – 1875)
+        if re.search(r'\(\d{4}[\s]*[—–-][\s]*\d{4}\)', text):
+            reason = "Contains 4-digit year range in parentheses"
+        
+        # Pattern 2: Dates in English or Russian format
+        # English: (May 7, 2007), (May 7 2007), (7 May 2007), (May 2007)
+        # Russian: (7 мая 2007), (7 мая 2007 г.), (май 2007)
+        elif re.search(r'\([^)]*(?:' + '|'.join(english_months) + r')[^)]*\d{4}[^)]*\)', text, re.IGNORECASE):
+            reason = "Contains date in English format"
+        elif re.search(r'\([^)]*(?:' + '|'.join(russian_months) + r')[^)]*\d{4}[^)]*\)', text, re.IGNORECASE):
+            reason = "Contains date in Russian format"
+        # Also match patterns like (7 May 2007) or (7 мая 2007)
+        elif re.search(r'\(\d{1,2}\s+(?:' + '|'.join(english_months) + r')\s+\d{4}\)', text, re.IGNORECASE):
+            reason = "Contains date in English format"
+        elif re.search(r'\(\d{1,2}\s+(?:' + '|'.join(russian_months) + r')\s+\d{4}\)', text, re.IGNORECASE):
+            reason = "Contains date in Russian format"
+        
+        # Pattern 3: Contains author name (check if any word matches author name)
+        elif _contains_author_name(text, author_names):
+            reason = "Contains author name"
+        
+        # Existing patterns
+        elif is_reference(text):
+            reason = "Reference/citation pattern"
         elif len(text) < 20:
-            bad_quotes.append((quote.id, text, "Too short"))
+            reason = "Too short"
         elif not re.search(r'[.!?]', text) and len(text) < 100:
-            bad_quotes.append((quote.id, text, "No sentence ending, likely title"))
+            reason = "No sentence ending, likely title"
+        
+        if reason:
+            bad_quotes.append((quote.id, text, reason))
     
     return bad_quotes
+
+
+def _contains_author_name(text: str, author_names: set) -> bool:
+    """
+    Check if text contains any author name.
+    
+    Args:
+        text: Quote text to check
+        author_names: Set of author names (lowercase)
+        
+    Returns:
+        True if text contains an author name
+    """
+    text_lower = text.lower()
+    
+    # Split text into words (handle punctuation)
+    words = re.findall(r'\b\w+\b', text_lower)
+    
+    # Check if any word matches an author name
+    for word in words:
+        if word in author_names:
+            return True
+    
+    # Also check for multi-word author names (2-4 words)
+    # Check all possible word combinations
+    for i in range(len(words)):
+        for j in range(i + 1, min(i + 5, len(words) + 1)):
+            phrase = ' '.join(words[i:j])
+            if phrase in author_names:
+                return True
+    
+    return False
 
 
 def clean_quotes(dry_run: bool = True) -> dict:
