@@ -74,20 +74,22 @@ class TranslationWordRepository:
             word_en_lower = word_en.lower().strip()
             word_ru_lower = word_ru.lower().strip()
             
-            # Check if exists
+            # Check if English word already exists (only check word_en, not word_ru)
+            # Multiple English words can have the same Russian translation
             existing = self.db.query(WordTranslation).filter(
-                or_(
-                    WordTranslation.word_en == word_en_lower,
-                    WordTranslation.word_ru == word_ru_lower
-                )
+                WordTranslation.word_en == word_en_lower
             ).first()
             
             if existing:
-                # Update frequencies if higher
+                # Update frequencies if higher, and update Russian if different
                 if frequency_en > existing.frequency_en:
                     existing.frequency_en = frequency_en
                 if frequency_ru > existing.frequency_ru:
                     existing.frequency_ru = frequency_ru
+                # Update Russian translation if provided and different
+                if word_ru_lower and word_ru_lower != existing.word_ru:
+                    existing.word_ru = word_ru_lower
+                self.db.commit()
                 return existing
             
             # Create new
@@ -145,4 +147,25 @@ class TranslationWordRepository:
     def get_count(self) -> int:
         """Get total number of translations."""
         return self.db.query(WordTranslation).count()
+    
+    def delete_from_id(self, start_id: int) -> int:
+        """
+        Delete all translations starting from specified ID.
+        
+        Args:
+            start_id: Starting ID to delete from
+            
+        Returns:
+            Number of records deleted
+        """
+        try:
+            count = self.db.query(WordTranslation).filter(
+                WordTranslation.id >= start_id
+            ).delete(synchronize_session=False)
+            self.db.commit()
+            return count
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Failed to delete records from ID {start_id}: {e}")
+            raise
 

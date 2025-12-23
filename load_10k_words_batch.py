@@ -8,7 +8,8 @@ if interrupted.
 import csv
 import os
 import json
-from typing import List, Dict
+import time
+from typing import List, Dict, Optional
 from database import SessionLocal
 from repositories.translation_word_repository import TranslationWordRepository
 from logger_config import logger
@@ -16,9 +17,22 @@ from logger_config import logger
 # Import word list from generate_common_words
 from generate_common_words import generate_extended_word_list
 
+# Try to import translation library
+try:
+    from deep_translator import GoogleTranslator
+    TRANSLATION_AVAILABLE = True
+except ImportError:
+    TRANSLATION_AVAILABLE = False
+    logger.warning(
+        "deep-translator not available. Install with: pip install deep-translator"
+    )
+
 # Progress tracking file
 PROGRESS_FILE = "data/word_loading_progress.json"
-BATCH_SIZE = 300  # Process 300 words at a time
+CSV_BACKUP_FILE = "data/word_translations_backup.csv"
+BATCH_SIZE = 200  # Process 200 words at a time
+CSV_FLUSH_INTERVAL = 10  # Flush to CSV every 10 records
+TARGET_WORD_COUNT = 20000  # Target: 20k words
 
 
 def load_progress() -> Dict:
@@ -44,83 +58,317 @@ def save_progress(progress: Dict) -> None:
         json.dump(progress, f, indent=2)
 
 
-def load_google_10k_english() -> List[str]:
-    """Load Google's 10,000 most common English words."""
-    file_path = "data/google-10000-english.txt"
-    if not os.path.exists(file_path):
-        logger.warning(f"Google 10k word list not found at {file_path}")
-        return []
+def append_to_csv(words: List[Dict]) -> None:
+    """
+    Append words to CSV backup file.
+    
+    Args:
+        words: List of dicts with 'word_en' and 'word_ru' keys
+    """
+    if not words:
+        return  # Nothing to write
+    
+    os.makedirs("data", exist_ok=True)
+    
+    # Check if file exists to determine if we need headers
+    file_exists = os.path.exists(CSV_BACKUP_FILE)
     
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            words = [line.strip().lower() for line in f if line.strip()]
-        logger.info(f"Loaded {len(words)} words from Google 10k list")
-        return words
+        with open(CSV_BACKUP_FILE, 'a', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['word_en', 'word_ru'])
+            
+            if not file_exists:
+                writer.writeheader()
+            
+            for word_data in words:
+                writer.writerow({
+                    'word_en': word_data.get('word_en', ''),
+                    'word_ru': word_data.get('word_ru', '')
+                })
+            
+            # Explicitly flush and sync to disk
+            f.flush()
+            os.fsync(f.fileno())
+        
+        logger.info(
+            f"✅ Flushed {len(words)} words to CSV backup "
+            f"({CSV_BACKUP_FILE})"
+        )
     except Exception as e:
-        logger.error(f"Failed to load Google 10k list: {e}")
-        return []
+        logger.error(
+            f"❌ Failed to flush {len(words)} words to CSV: {e}",
+            exc_info=True
+        )
+        raise
 
 
-def get_translation_for_word(word: str, existing_translations: Dict[str, str]) -> str:
+def load_google_20k_english() -> List[str]:
+    """
+    Load Google's 20,000 most common English words.
+    Falls back to 10k list if 20k list not available.
+    """
+    # Try 20k list first
+    file_path_20k = "data/google-20000-english.txt"
+    if os.path.exists(file_path_20k):
+        try:
+            with open(file_path_20k, 'r', encoding='utf-8') as f:
+                words = [line.strip().lower() for line in f if line.strip()]
+            logger.info(f"Loaded {len(words)} words from Google 20k list")
+            return words
+        except Exception as e:
+            logger.error(f"Failed to load Google 20k list: {e}")
+    
+    # Fall back to 10k list
+    file_path_10k = "data/google-10000-english.txt"
+    if os.path.exists(file_path_10k):
+        try:
+            with open(file_path_10k, 'r', encoding='utf-8') as f:
+                words = [line.strip().lower() for line in f if line.strip()]
+            logger.info(
+                f"Loaded {len(words)} words from Google 10k list "
+                f"(20k list not found, using 10k as fallback)"
+            )
+            return words
+        except Exception as e:
+            logger.error(f"Failed to load Google 10k list: {e}")
+    
+    logger.warning("Neither Google 20k nor 10k word list found")
+    return []
+
+
+# Global translator instance (initialized once)
+_translator = None
+
+
+def get_translator():
+    """Get or create translator instance."""
+    global _translator
+    if _translator is None and TRANSLATION_AVAILABLE:
+        try:
+            _translator = GoogleTranslator(source='en', target='ru')
+        except Exception as e:
+            logger.error(f"Failed to initialize translator: {e}")
+            return None
+    return _translator
+
+
+def translate_word_to_russian(word: str) -> Optional[str]:
+    """
+    Translate English word to Russian using translation API.
+    
+    Args:
+        word: English word to translate
+        
+    Returns:
+        Russian translation or None if translation fails
+    """
+    if not TRANSLATION_AVAILABLE:
+        return None
+    
+    translator = get_translator()
+    if not translator:
+        return None
+    
+    try:
+        # Translate the word
+        translation = translator.translate(word)
+        
+        # Validate: translation should be different from original
+        if translation and translation.lower() != word.lower():
+            return translation
+        
+        return None
+    except Exception as e:
+        logger.debug(f"Translation failed for '{word}': {e}")
+        return None
+
+
+def get_translation_for_word(
+    word: str,
+    existing_translations: Dict[str, str],
+    repo: Optional[object] = None
+) -> Optional[str]:
     """
     Get Russian translation for a word.
     
-    Uses existing translations dictionary, or generates a placeholder.
+    Checks database first (if repo provided), then existing translations,
+    then translation API. Returns None if no translation found.
+    
+    Args:
+        word: English word to translate
+        existing_translations: Dictionary of known translations
+        repo: Optional TranslationWordRepository to check database
+        
+    Returns:
+        Russian translation or None
     """
     word_lower = word.lower()
     
-    # Check existing translations
+    # Check database first to avoid wasting time on translation
+    if repo:
+        try:
+            existing_translation = repo.get_translation(word_lower)
+            if existing_translation and existing_translation.lower() != word_lower:
+                return existing_translation
+        except Exception as e:
+            logger.debug(f"Could not check database for '{word}': {e}")
+    
+    # Check existing translations dictionary
     if word_lower in existing_translations:
-        return existing_translations[word_lower]
+        ru_translation = existing_translations[word_lower]
+        # Ensure translation is different from English
+        if ru_translation.lower() != word_lower:
+            return ru_translation
     
-    # For words without translations, use a placeholder pattern
-    # In production, this would use a translation API or dictionary
-    return f"[{word}]"  # Placeholder - will be skipped if starts with '['
+    # Try translation API (only if not in database)
+    translation = translate_word_to_russian(word)
+    if translation:
+        return translation
+    
+    # No translation available - return None (word will be skipped)
+    return None
 
 
-def expand_to_10k_words(base_words: List[Dict]) -> List[Dict]:
+def expand_to_20k_words(
+    base_words: List[Dict],
+    db_session=None,
+    repo=None
+) -> List[Dict]:
     """
-    Expand word list to 10,000 words.
+    Expand word list to target word count (default 20,000).
     
-    Uses Google's 10k English words list and matches with existing translations.
+    Uses Google's 20k English words list. Only generates words NOT in database.
+    Only calls translation service for words not in database.
+    
+    Args:
+        base_words: Base list of words with translations
+        db_session: Optional database session to check existing words
+        repo: Optional repository to check existing words
     """
-    words = base_words.copy()
+    # Get current database count
+    current_db_count = 0
+    existing_db_words = set()
     
-    # Build translation dictionary from existing words
+    if repo:
+        try:
+            current_db_count = repo.get_count()
+            logger.info(
+                f"Current database count: {current_db_count} words"
+            )
+        except Exception as e:
+            logger.debug(f"Could not get database count: {e}")
+    
+    # Load all existing words from database to skip them
+    if db_session and repo:
+        try:
+            from models import WordTranslation
+            existing_words = db_session.query(
+                WordTranslation.word_en
+            ).all()
+            existing_db_words = {w[0].lower() for w in existing_words}
+            logger.info(
+                f"Loaded {len(existing_db_words)} existing words from database "
+                f"(will skip these to avoid unnecessary translation API calls)"
+            )
+        except Exception as e:
+            logger.debug(f"Could not load existing words from database: {e}")
+    
+    # Calculate how many words we need
+    words_needed = max(0, TARGET_WORD_COUNT - current_db_count)
+    logger.info(
+        f"Target: {TARGET_WORD_COUNT} words. "
+        f"Need {words_needed} more words to reach target."
+    )
+    
+    if words_needed == 0:
+        logger.info("Database already has 20k words. No expansion needed.")
+        return []
+    
+    # Build translation dictionary from base words
     translation_dict = {}
     for word_data in base_words:
         en = word_data['word_en'].lower()
         ru = word_data['word_ru']
         translation_dict[en] = ru
     
-    # Load Google's 10k English words
-    english_words = load_google_10k_english()
+    # Load Google's 20k English words
+    english_words = load_google_20k_english()
     
     if not english_words:
-        logger.warning("Could not load Google 10k list, using expanded built-in list")
+        logger.warning("Could not load Google 20k list, using expanded built-in list")
         # Fall back to expanded built-in list
-        return words + _generate_more_words()
+        return _generate_more_words()
     
-    # Create word list from Google 10k
-    # Start with highest frequency (first in list)
+    # Create word list from Google 20k
+    # Only include words NOT in database
     new_words = []
-    seen_words = {w['word_en'].lower() for w in words}
+    seen_words = {w['word_en'].lower() for w in base_words}
+    skipped_count = 0
+    skipped_in_db = 0
+    max_skipped = 15000  # Allow up to 15k skipped words before giving up
+    total_new_words = 0  # Track total new words generated
+    
+    logger.info(
+        f"Processing Google 20k word list. "
+        f"Will skip words already in database ({len(existing_db_words)} words)."
+    )
     
     for i, en_word in enumerate(english_words):
-        if en_word in seen_words:
-            continue  # Already have this word
+        # Stop when we have enough new words
+        if len(new_words) >= words_needed:
+            break
         
-        # Get translation
-        ru_word = get_translation_for_word(en_word, translation_dict)
+        en_word_lower = en_word.lower()
         
-        # If no translation found, use the English word as placeholder
-        # This ensures we load all 10k words even without perfect translations
-        if ru_word.startswith('[') and ru_word.endswith(']'):
-            # Use English word as fallback - can be updated later with proper translations
-            ru_word = en_word
+        # Skip if already in base words
+        if en_word_lower in seen_words:
+            continue
+        
+        # Skip if already in database (fast check)
+        if en_word_lower in existing_db_words:
+            skipped_in_db += 1
+            continue
+        
+        # Double-check database using repo before translating (avoid API calls)
+        if repo:
+            try:
+                existing_translation = repo.get_translation(en_word_lower)
+                if existing_translation:
+                    # Word exists in database, skip it entirely
+                    existing_db_words.add(en_word_lower)  # Cache it
+                    skipped_in_db += 1
+                    continue
+            except Exception as e:
+                logger.debug(f"Could not check repo for '{en_word}': {e}")
+        
+        # Get translation (returns None if no translation available)
+        # Only call this if word is NOT in database
+        # Pass repo=None to avoid double-checking (we already checked above)
+        ru_word = get_translation_for_word(en_word, translation_dict, repo=None)
+        
+        # Skip words without valid translations
+        if not ru_word:
+            skipped_count += 1
+            if skipped_count % 100 == 0:
+                logger.debug(
+                    f"Skipped {skipped_count} words without translations "
+                    f"(have {len(new_words)} new words so far)"
+                )
+            if skipped_count > max_skipped:
+                logger.warning(
+                    f"Too many skipped words ({skipped_count}). "
+                    f"Stopping expansion."
+                )
+                break
+            continue
+        
+        # Ensure EN and RU are different (final validation)
+        if en_word.lower() == ru_word.lower():
+            skipped_count += 1
+            continue
         
         # Calculate frequency (higher for earlier words)
-        freq = 10000 - i
+        freq = 20000 - i
         
         new_words.append({
             'word_en': en_word,
@@ -128,25 +376,27 @@ def expand_to_10k_words(base_words: List[Dict]) -> List[Dict]:
             'frequency_en': freq,
             'frequency_ru': freq
         })
+        seen_words.add(en_word.lower())
         
-        # Stop when we have 10k total
-        if len(words) + len(new_words) >= 10000:
-            break
+        # Rate limiting: small delay to avoid API limits
+        if TRANSLATION_AVAILABLE and len(new_words) % 10 == 0:
+            time.sleep(0.1)
+        
+        # Progress logging
+        if len(new_words) % 100 == 0:
+            logger.info(
+                f"Translated {len(new_words)} new words "
+                f"(target: {words_needed}, skipped {skipped_in_db} already in DB)"
+            )
     
-    words.extend(new_words)
+    logger.info(
+        f"Generated {len(new_words)} new words to load. "
+        f"Skipped {skipped_in_db} words already in database. "
+        f"Skipped {skipped_count} words without valid translations."
+    )
     
-    # If still not 10k, add more from built-in list
-    if len(words) < 10000:
-        logger.info(f"Adding more words to reach 10k (currently {len(words)})")
-        more_words = _generate_more_words()
-        for word_data in more_words:
-            if len(words) >= 10000:
-                break
-            if word_data['word_en'].lower() not in seen_words:
-                words.append(word_data)
-                seen_words.add(word_data['word_en'].lower())
-    
-    return words[:10000]  # Ensure exactly 10k
+    # Return only new words (base_words are already in database)
+    return new_words
 
 
 def _generate_more_words() -> List[Dict]:
@@ -755,13 +1005,24 @@ def load_batch(
     repo: TranslationWordRepository,
     words: List[Dict],
     start_index: int,
-    batch_size: int
-) -> int:
+    batch_size: int,
+    csv_buffer: List[Dict],
+    first_n_records_count: int = 0
+) -> tuple:
     """
     Load a batch of words.
     
+    Args:
+        db: Database session
+        repo: Translation word repository
+        words: List of word dictionaries
+        start_index: Starting index in words list
+        batch_size: Batch size
+        csv_buffer: Buffer for CSV writes (modified in place)
+        first_n_records_count: Counter for first N records (for special handling)
+    
     Returns:
-        Number of words successfully loaded
+        Tuple of (loaded_count, errors_list, should_exit_flag, new_first_n_count)
     """
     end_index = min(start_index + batch_size, len(words))
     batch = words[start_index:end_index]
@@ -773,16 +1034,109 @@ def load_batch(
     
     loaded = 0
     errors = []
+    should_exit = False
+    flush_interval = 50  # Default flush interval after first 5 records
+    first_n_threshold = 5  # First 5 records get special handling
+    
+    # For first 5 records, flush after each one
+    is_first_n_mode = first_n_records_count < first_n_threshold
+    consecutive_no_change = 0
+    max_no_change = 5  # Exit if count doesn't change after 5 attempts
     
     for word_data in batch:
         try:
+            word_en_raw = word_data.get('word_en', '')
+            word_ru_raw = word_data.get('word_ru', '')
+
+            word_en = word_en_raw.strip().lower()
+            word_ru = word_ru_raw.strip().lower()
+
+            # Skip entries where EN and RU are identical after normalization
+            if not word_en or not word_ru:
+                continue
+
+            if word_en == word_ru:
+                logger.debug(
+                    "Skipping word with identical EN/RU columns: '%s'", word_en
+                )
+                continue
+
+            # Check count before adding to detect new records
+            count_before = repo.get_count()
+            
+            # Add to database
             repo.create_or_update(
-                word_en=word_data['word_en'],
-                word_ru=word_data['word_ru'],
+                word_en=word_en,
+                word_ru=word_ru,
                 frequency_en=word_data.get('frequency_en', 0),
                 frequency_ru=word_data.get('frequency_ru', 0)
             )
-            loaded += 1
+            
+            # Check count after adding to see if it's a new record
+            count_after = repo.get_count()
+            is_new_record = count_after > count_before
+            
+            # Only count and add to CSV if it's a new record
+            if is_new_record:
+                # Add to CSV buffer
+                csv_buffer.append({
+                    'word_en': word_en,
+                    'word_ru': word_ru
+                })
+                
+                loaded += 1
+                first_n_records_count += 1
+                consecutive_no_change = 0  # Reset counter on success
+                
+                # For first 5 records: flush after each one
+                if is_first_n_mode:
+                    append_to_csv(csv_buffer)
+                    csv_buffer.clear()
+                    logger.info(
+                        f"✅ Flushed 1 word to CSV (first {first_n_records_count} "
+                        f"records: flush every record)"
+                    )
+                    
+                    # Check if we've completed first 5 records
+                    if first_n_records_count >= first_n_threshold:
+                        is_first_n_mode = False
+                        logger.info(
+                            f"✅ Completed first {first_n_threshold} records. "
+                            f"Switching to flush every {flush_interval} records."
+                        )
+                else:
+                    # After first 5: flush every 50 records
+                    if len(csv_buffer) >= flush_interval:
+                        append_to_csv(csv_buffer)
+                        csv_buffer.clear()
+                        logger.info(
+                            f"✅ Flushed {flush_interval} words to CSV backup "
+                            f"(CSV total growing incrementally)"
+                        )
+            else:
+                logger.debug(
+                    f"Skipping existing word (not counted): {word_en} -> {word_ru}"
+                )
+                # In first 5 mode, track consecutive no-change
+                if is_first_n_mode:
+                    #consecutive_no_change += 1
+                    logger.warning(
+                        f"⚠️ Record {first_n_records_count + 1} did not change count "
+                        f"(consecutive no-change: {consecutive_no_change}/{max_no_change})"
+                    )
+                    
+                    # Exit if count doesn't change after 5 attempts
+                    if consecutive_no_change >= max_no_change:
+                        logger.error("=" * 60)
+                        logger.error(
+                            f"Count did not change after {max_no_change} attempts "
+                            f"in first {first_n_threshold} records mode."
+                        )
+                        logger.error("Exiting - database may not be saving records.")
+                        logger.error("=" * 60)
+                        should_exit = True
+                        break
+        
         except Exception as e:
             error_msg = f"Failed to load word {word_data.get('word_en')}: {e}"
             logger.warning(error_msg)
@@ -790,7 +1144,7 @@ def load_batch(
             continue
     
     db.commit()
-    return loaded, errors
+    return loaded, errors, should_exit, first_n_records_count
 
 
 def main():
@@ -846,27 +1200,70 @@ def main():
             f"{progress['batches_completed']} batches completed"
         )
     
-    # Generate word list
-    logger.info("Generating word list...")
-    base_words = generate_extended_word_list()
-    words = expand_to_10k_words(base_words)
-    logger.info(f"Generated {len(words)} words to load")
-    
-    if len(words) < 10000:
-        logger.warning(
-            f"Only {len(words)} words generated. "
-            "Need to expand to reach 10,000 words."
+    # Check translation availability
+    if not TRANSLATION_AVAILABLE:
+        logger.error("=" * 60)
+        logger.error(
+            "Translation library not available! Install with:"
         )
+        logger.error("  pip install deep-translator")
+        logger.error("=" * 60)
+        logger.error(
+            "Without translation library, only words with existing "
+            "translations will be loaded."
+        )
+        logger.error("=" * 60)
     
-    # Initialize database
+    # Initialize database early to check existing words
     db = SessionLocal()
     repo = TranslationWordRepository(db)
+    
+    # Generate word list (will skip words already in database)
+    logger.info("Generating word list...")
+    base_words = generate_extended_word_list()
+    words = expand_to_20k_words(base_words, db_session=db, repo=repo)
+    logger.info(f"Generated {len(words)} words to load")
+    
+    if len(words) < TARGET_WORD_COUNT and not TRANSLATION_AVAILABLE:
+        logger.warning(
+            f"Only {len(words)} words generated. "
+            f"Install deep-translator to translate more words and reach {TARGET_WORD_COUNT}."
+        )
+    
+    if len(words) < TARGET_WORD_COUNT:
+        logger.warning(
+            f"Only {len(words)} words generated. "
+            f"Need to expand to reach {TARGET_WORD_COUNT} words."
+        )
+    
+    # Check current database count
+    current_db_count = repo.get_count()
+    logger.info(f"Current words in database: {current_db_count}")
+    target_count = TARGET_WORD_COUNT
+    
+    # CSV buffer for incremental writes
+    csv_buffer = []
+    logger.info(
+        f"CSV backup file: {CSV_BACKUP_FILE} "
+        f"(first 5 records: flush every record, then flush every 50 records)"
+    )
     
     try:
         start_index = progress['last_processed_index']
         batches_processed = 0
+        first_n_records_count = 0  # Track first 5 records for special handling
         
         while start_index < len(words):
+            # Check current database count BEFORE batch
+            db_count_before = repo.get_count()
+            
+            # Stop if we've reached target in database
+            if db_count_before >= target_count:
+                logger.info(
+                    f"✅ Reached target of {target_count} words in database!"
+                )
+                break
+            
             # Check if we've hit max batches limit
             if args.max_batches and batches_processed >= args.max_batches:
                 logger.info(f"Reached max batches limit ({args.max_batches})")
@@ -874,13 +1271,50 @@ def main():
             
             # Load batch
             result = load_batch(
-                db, repo, words, start_index, args.batch_size
+                db, repo, words, start_index, args.batch_size, csv_buffer,
+                first_n_records_count=first_n_records_count
             )
-            if isinstance(result, tuple):
+            if isinstance(result, tuple) and len(result) == 4:
+                loaded, errors, should_exit, first_n_records_count = result
+            elif isinstance(result, tuple) and len(result) == 2:
                 loaded, errors = result
+                should_exit = False
             else:
                 loaded = result
                 errors = []
+                should_exit = False
+            
+            # Exit if load_batch detected we should exit
+            if should_exit:
+                break
+            
+            # Flush CSV buffer after each batch (for records not in first 5 mode)
+            # First 5 records are flushed individually in load_batch
+            if csv_buffer and first_n_records_count >= 5:
+                # Only flush if buffer has accumulated records
+                if len(csv_buffer) > 0:
+                    append_to_csv(csv_buffer)
+                    buffer_size = len(csv_buffer)
+                    csv_buffer.clear()
+                    logger.info(
+                        f"✅ Flushed {buffer_size} words from batch to CSV backup"
+                    )
+            
+            # Get updated database count AFTER batch
+            db_count_after = repo.get_count()
+            count_changed = db_count_after > db_count_before
+            
+            # Exit if count didn't change (no new records were added)
+            # But skip this check for first 5 records (handled in load_batch)
+            if not count_changed and first_n_records_count >= 5:
+                logger.info("=" * 60)
+                logger.info(
+                    f"Database count unchanged after batch "
+                    f"({db_count_before} -> {db_count_after})"
+                )
+                logger.info("Exiting - no new records were added.")
+                logger.info("=" * 60)
+                break
             
             # Update progress
             progress['last_processed_index'] = start_index + args.batch_size
@@ -893,12 +1327,125 @@ def main():
             batches_processed += 1
             start_index += args.batch_size
             
+            remaining = max(0, target_count - db_count_after)
+            
             logger.info(
                 f"Batch {batches_processed} complete. "
                 f"Loaded: {loaded} words. "
-                f"Total loaded: {progress['total_loaded']}/{len(words)} "
-                f"({progress['total_loaded']*100//len(words)}%)"
+                f"Database total: {db_count_after}/{target_count} "
+                f"({remaining} remaining, +{db_count_after - db_count_before} new)"
             )
+        
+        # Flush remaining CSV buffer
+        if csv_buffer:
+            append_to_csv(csv_buffer)
+            csv_buffer.clear()
+            logger.info("Flushed remaining words to CSV backup")
+        
+        # Check if we need more words
+        final_count = repo.get_count()
+        
+        if final_count < target_count and start_index >= len(words):
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info(f"Ran out of words before reaching {target_count}")
+            logger.info("=" * 60)
+            logger.info(
+                f"Current count: {final_count}/{target_count} "
+                f"({target_count - final_count} remaining)"
+            )
+            logger.info("Regenerating word list to find more translations...")
+            logger.info("=" * 60)
+            
+            # Regenerate word list (will skip already loaded words)
+            logger.info("Regenerating word list...")
+            base_words = generate_extended_word_list()
+            words = expand_to_20k_words(base_words, db_session=db, repo=repo)
+            
+            # Reset start index to continue loading
+            progress['last_processed_index'] = 0
+            start_index = 0
+            
+            logger.info(
+                f"Regenerated {len(words)} words. "
+                "Continuing to load..."
+            )
+            logger.info("")
+            
+            # Continue loading from regenerated list
+            # Reset first_n_records_count for regeneration loop
+            first_n_records_count = 0
+            
+            while start_index < len(words):
+                # Check current database count BEFORE batch
+                db_count_before = repo.get_count()
+                
+                if db_count_before >= target_count:
+                    break
+                
+                result = load_batch(
+                    db, repo, words, start_index, args.batch_size, csv_buffer,
+                    first_n_records_count=first_n_records_count
+                )
+                if isinstance(result, tuple) and len(result) == 4:
+                    loaded, errors, should_exit, first_n_records_count = result
+                elif isinstance(result, tuple) and len(result) == 2:
+                    loaded, errors = result
+                    should_exit = False
+                else:
+                    loaded = result
+                    errors = []
+                    should_exit = False
+                
+                # Exit if load_batch detected we should exit
+                if should_exit:
+                    break
+                
+                # Flush CSV buffer after each batch (for records not in first 5 mode)
+                if csv_buffer and first_n_records_count >= 5:
+                    if len(csv_buffer) > 0:
+                        append_to_csv(csv_buffer)
+                        buffer_size = len(csv_buffer)
+                        csv_buffer.clear()
+                        logger.info(
+                            f"✅ Flushed {buffer_size} words from batch to CSV backup"
+                        )
+                
+                # Get updated database count AFTER batch
+                db_count_after = repo.get_count()
+                count_changed = db_count_after > db_count_before
+                
+                # Exit if count didn't change (no new records were added)
+                # But skip this check for first 5 records (handled in load_batch)
+                if not count_changed and first_n_records_count >= 5:
+                    logger.info("=" * 60)
+                    logger.info(
+                        f"Database count unchanged after batch "
+                        f"({db_count_before} -> {db_count_after})"
+                    )
+                    logger.info("Exiting - no new records were added.")
+                    logger.info("=" * 60)
+                    break
+                
+                # Update progress
+                progress['last_processed_index'] = start_index + args.batch_size
+                progress['total_loaded'] += loaded
+                progress['batches_completed'] += 1
+                if errors:
+                    progress['errors'].extend(errors)
+                save_progress(progress)
+                
+                batches_processed += 1
+                start_index += args.batch_size
+                
+                remaining = max(0, target_count - db_count_after)
+                
+                logger.info(
+                    f"Batch {batches_processed} complete. "
+                    f"Loaded: {loaded} words. "
+                    f"Database total: {db_count_after}/{target_count} "
+                    f"({remaining} remaining, +{db_count_after - db_count_before} new)"
+                )
         
         # Final count
         final_count = repo.get_count()
@@ -910,12 +1457,22 @@ def main():
         logger.info(f"Errors encountered: {len(progress.get('errors', []))}")
         logger.info("=" * 60)
         
-        if final_count >= 10000:
-            logger.info("✅ Successfully loaded 10,000+ word translations!")
+        # Final CSV flush
+        if csv_buffer:
+            append_to_csv(csv_buffer)
+            csv_buffer.clear()
+            logger.info("Final flush: saved remaining words to CSV backup")
+        
+        logger.info(f"CSV backup file: {CSV_BACKUP_FILE}")
+        
+        if final_count >= target_count:
+            logger.info(
+                f"✅ Successfully loaded {target_count}+ word translations!"
+            )
         else:
             logger.warning(
                 f"⚠️  Only {final_count} words loaded. "
-                "Need to expand word list to reach 10,000."
+                f"Need {target_count - final_count} more to reach {target_count}."
             )
             logger.info(
                 f"To continue loading, run: python load_10k_words_batch.py"
