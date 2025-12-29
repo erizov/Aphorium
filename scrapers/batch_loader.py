@@ -27,6 +27,7 @@ from scrapers.wikiquote_ru import WikiQuoteRuScraper
 from repositories.author_repository import AuthorRepository
 from repositories.source_repository import SourceRepository
 from repositories.quote_repository import QuoteRepository
+from models import Quote
 from logger_config import logger
 
 
@@ -99,9 +100,20 @@ def ingest_author_batch(
                 continue
 
             # Create or get author
+            author_name_from_scraper = data["author_name"]
+            
+            # Determine which name field to use based on language
+            name_en = None
+            name_ru = None
+            if language == "en":
+                name_en = author_name_from_scraper
+            else:  # language == "ru"
+                name_ru = author_name_from_scraper
+            
+            # Get or create author using repository
             author = author_repo.get_or_create(
-                name=data["author_name"],
-                language=language,
+                name_en=name_en,
+                name_ru=name_ru,
                 bio=data["bio"],
                 wikiquote_url=scraper.get_author_url(author_name)
             )
@@ -128,14 +140,36 @@ def ingest_author_batch(
                     )
                     stats["sources_created"] += 1
 
-                # Add quotes to batch
+                # Add quotes to batch (check for existing quotes)
                 for quote_text in quotes:
-                    quotes_batch.append({
-                        "text": quote_text,
-                        "author_id": author.id,
-                        "source_id": source.id,
-                        "language": language
-                    })
+                    # Check if quote already exists
+                    existing_quote = (
+                        db.query(Quote)
+                        .filter(
+                            Quote.text == quote_text,
+                            Quote.language == language
+                        )
+                        .first()
+                    )
+                    
+                    if existing_quote:
+                        # Attribute existing quote to this author
+                        if existing_quote.author_id != author.id:
+                            logger.info(
+                                f"Attributing existing quote (ID {existing_quote.id}) "
+                                f"to author {author.id} ({author_name_from_scraper})"
+                            )
+                            existing_quote.author_id = author.id
+                            existing_quote.source_id = source.id
+                            db.commit()
+                    else:
+                        # Add to batch for new quote creation
+                        quotes_batch.append({
+                            "text": quote_text,
+                            "author_id": author.id,
+                            "source_id": source.id,
+                            "language": language
+                        })
 
             # Process quotes without source
             for quote_text in data["quotes"]:
@@ -144,12 +178,33 @@ def ingest_author_batch(
                     q for quotes_list in data["sources"].values()
                     for q in quotes_list
                 ]:
-                    quotes_batch.append({
-                        "text": quote_text,
-                        "author_id": author.id,
-                        "source_id": None,
-                        "language": language
-                    })
+                    # Check if quote already exists
+                    existing_quote = (
+                        db.query(Quote)
+                        .filter(
+                            Quote.text == quote_text,
+                            Quote.language == language
+                        )
+                        .first()
+                    )
+                    
+                    if existing_quote:
+                        # Attribute existing quote to this author
+                        if existing_quote.author_id != author.id:
+                            logger.info(
+                                f"Attributing existing quote (ID {existing_quote.id}) "
+                                f"to author {author.id} ({author_name_from_scraper})"
+                            )
+                            existing_quote.author_id = author.id
+                            db.commit()
+                    else:
+                        # Add to batch for new quote creation
+                        quotes_batch.append({
+                            "text": quote_text,
+                            "author_id": author.id,
+                            "source_id": None,
+                            "language": language
+                        })
 
             # Batch insert quotes
             if len(quotes_batch) >= batch_size:

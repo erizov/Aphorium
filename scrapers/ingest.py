@@ -7,7 +7,9 @@ Usage:
 """
 
 import argparse
+from typing import Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from database import SessionLocal, init_db
 from scrapers.wikiquote_en import WikiQuoteEnScraper
@@ -15,7 +17,42 @@ from scrapers.wikiquote_ru import WikiQuoteRuScraper
 from repositories.author_repository import AuthorRepository
 from repositories.source_repository import SourceRepository
 from repositories.quote_repository import QuoteRepository
+from models import Quote
 from logger_config import logger
+
+# Try to import langdetect for language detection
+try:
+    from langdetect import detect, LangDetectException
+    HAS_LANGDETECT = True
+except ImportError:
+    HAS_LANGDETECT = False
+
+
+def detect_text_language(text: str) -> Optional[str]:
+    """Detect language of text."""
+    if not text or not text.strip():
+        return None
+    
+    if HAS_LANGDETECT:
+        try:
+            lang = detect(text)
+            if lang == 'en':
+                return 'en'
+            elif lang == 'ru':
+                return 'ru'
+        except LangDetectException:
+            pass
+    
+    # Fallback: character-based detection
+    has_cyrillic = any('\u0400' <= char <= '\u04FF' for char in text)
+    has_latin = any(char.isalpha() and ord(char) < 128 for char in text)
+    
+    if has_cyrillic and not has_latin:
+        return 'ru'
+    elif has_latin and not has_cyrillic:
+        return 'en'
+    
+    return None
 
 
 def ingest_author(
@@ -50,9 +87,20 @@ def ingest_author(
 
         # Create or get author
         author_repo = AuthorRepository(db)
+        author_name_from_scraper = data["author_name"]
+        
+        # Determine which name field to use based on language
+        name_en = None
+        name_ru = None
+        if language == "en":
+            name_en = author_name_from_scraper
+        else:  # language == "ru"
+            name_ru = author_name_from_scraper
+        
+        # Get or create author using repository
         author = author_repo.get_or_create(
-            name=data["author_name"],
-            language=language,
+            name_en=name_en,
+            name_ru=name_ru,
             bio=data["bio"],
             wikiquote_url=scraper.get_author_url(author_name)
         )
@@ -71,17 +119,39 @@ def ingest_author(
                 source_type="book"  # Default, could be improved
             )
 
-            # Create quotes
+            # Create quotes or attribute existing ones
             for quote_text in quotes:
                 try:
-                    quote_repo.create(
-                        text=quote_text,
-                        author_id=author.id,
-                        source_id=source.id,
-                        language=language
+                    # Check if quote already exists
+                    existing_quote = (
+                        db.query(Quote)
+                        .filter(
+                            Quote.text == quote_text,
+                            Quote.language == language
+                        )
+                        .first()
                     )
+                    
+                    if existing_quote:
+                        # Attribute existing quote to this author
+                        if existing_quote.author_id != author.id:
+                            logger.info(
+                                f"Attributing existing quote (ID {existing_quote.id}) "
+                                f"to author {author.id} ({author_name_from_scraper})"
+                            )
+                            existing_quote.author_id = author.id
+                            existing_quote.source_id = source.id
+                            db.commit()
+                    else:
+                        # Create new quote
+                        quote_repo.create(
+                            text=quote_text,
+                            author_id=author.id,
+                            source_id=source.id,
+                            language=language
+                        )
                 except Exception as e:
-                    logger.warning(f"Failed to create quote: {e}")
+                    logger.warning(f"Failed to create/attribute quote: {e}")
                     continue
 
         # Process quotes without source
@@ -92,14 +162,35 @@ def ingest_author(
                 for q in quotes_list
             ]:
                 try:
-                    quote_repo.create(
-                        text=quote_text,
-                        author_id=author.id,
-                        source_id=None,
-                        language=language
+                    # Check if quote already exists
+                    existing_quote = (
+                        db.query(Quote)
+                        .filter(
+                            Quote.text == quote_text,
+                            Quote.language == language
+                        )
+                        .first()
                     )
+                    
+                    if existing_quote:
+                        # Attribute existing quote to this author
+                        if existing_quote.author_id != author.id:
+                            logger.info(
+                                f"Attributing existing quote (ID {existing_quote.id}) "
+                                f"to author {author.id} ({author_name_from_scraper})"
+                            )
+                            existing_quote.author_id = author.id
+                            db.commit()
+                    else:
+                        # Create new quote
+                        quote_repo.create(
+                            text=quote_text,
+                            author_id=author.id,
+                            source_id=None,
+                            language=language
+                        )
                 except Exception as e:
-                    logger.warning(f"Failed to create quote: {e}")
+                    logger.warning(f"Failed to create/attribute quote: {e}")
                     continue
 
         logger.info(
