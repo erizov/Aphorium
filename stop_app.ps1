@@ -7,12 +7,12 @@ Write-Host "Stopping Aphorium servers..." -ForegroundColor Yellow
 $pidFile = ".app_pids.txt"
 if (Test-Path $pidFile) {
     $pids = Get-Content $pidFile
-    foreach ($pid in $pids) {
-        if ($pid -match '^\d+$') {
-            $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    foreach ($processId in $pids) {
+        if ($processId -match '^\d+$') {
+            $proc = Get-Process -Id $processId -ErrorAction SilentlyContinue
             if ($proc) {
-                Write-Host "Stopping process $pid..." -ForegroundColor Cyan
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+                Write-Host "Stopping process $processId..." -ForegroundColor Cyan
+                Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
             }
         }
     }
@@ -60,9 +60,9 @@ try {
     $backendProcs = Get-NetTCPConnection -LocalPort $backendPort -ErrorAction SilentlyContinue | 
         Select-Object -ExpandProperty OwningProcess -Unique
     if ($backendProcs) {
-        foreach ($pid in $backendProcs) {
-            Write-Host "Stopping process on port $backendPort (PID: $pid)..." -ForegroundColor Cyan
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        foreach ($processId in $backendProcs) {
+            Write-Host "Stopping process on port $backendPort (PID: $processId)..." -ForegroundColor Cyan
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
         }
     }
 } catch {
@@ -74,9 +74,9 @@ try {
     $frontendProcs = Get-NetTCPConnection -LocalPort $frontendPort -ErrorAction SilentlyContinue | 
         Select-Object -ExpandProperty OwningProcess -Unique
     if ($frontendProcs) {
-        foreach ($pid in $frontendProcs) {
-            Write-Host "Stopping process on port $frontendPort (PID: $pid)..." -ForegroundColor Cyan
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        foreach ($processId in $frontendProcs) {
+            Write-Host "Stopping process on port $frontendPort (PID: $processId)..." -ForegroundColor Cyan
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
         }
     }
 } catch {

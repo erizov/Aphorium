@@ -22,6 +22,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import LanguageIcon from '@mui/icons-material/Language'
 import axios from 'axios'
+import TextToSpeechButton from './components/TextToSpeechButton'
 
 const theme = createTheme({
   palette: {
@@ -53,6 +54,13 @@ function App() {
 
   const handleSearch = async () => {
     if (!query.trim()) return
+
+    // Log search input in frontend for visibility/debugging
+    console.info('[Search]', {
+      query: query.trim(),
+      preferBilingual,
+      timestamp: new Date().toISOString()
+    })
 
     setLoading(true)
     setError(null)
@@ -114,6 +122,9 @@ function App() {
               Search for quotes and aphorisms from English and Russian literature.
               Learn languages naturally by exploring the best quotes from both cultures.
             </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: 'italic' }}>
+              💡 Tip: Use quotes for exact phrases (e.g., "a love is"), or search without quotes for broader matches
+            </Typography>
 
             <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
               <TextField
@@ -168,105 +179,193 @@ function App() {
           )}
 
           <Grid container spacing={3}>
-            {results.map((pair, index) => (
-              <Grid item xs={12} sm={6} md={4} key={pair.english?.id || pair.russian?.id || index}>
-                <Card
-                  sx={{
-                    borderLeft: (pair.english && pair.russian) ? '4px solid #27ae60' : '4px solid #667eea',
-                    bgcolor: (pair.english && pair.russian) ? 'rgba(39, 174, 96, 0.05)' : 'white',
-                    transition: 'transform 0.2s, box-shadow 0.2s',
-                    '&:hover': {
-                      transform: 'translateY(-4px)',
-                      boxShadow: 4,
-                    },
-                  }}
+            {results.map((pair, index) => {
+              // Check if this is a bilingual pair (both EN and RU exist)
+              const isBilingual = pair.english && pair.russian
+              
+              return (
+                <Grid 
+                  item 
+                  xs={12} 
+                  sm={isBilingual ? 12 : 6} 
+                  md={isBilingual ? 12 : 4} 
+                  key={pair.english?.id || pair.russian?.id || index}
                 >
-                  <CardContent>
-                    <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
-                      {/* English Quote */}
-                      {pair.english && (
-                        <Box sx={{ flex: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                            <Chip
-                              icon={<LanguageIcon />}
-                              label="EN"
-                              size="small"
-                              color="primary"
-                              variant="outlined"
-                            />
-                            {pair.is_translated && (
+                  <Card
+                    sx={{
+                      borderLeft: isBilingual ? '4px solid #27ae60' : '4px solid #667eea',
+                      bgcolor: isBilingual ? 'rgba(39, 174, 96, 0.05)' : 'white',
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      '&:hover': {
+                        transform: 'translateY(-4px)',
+                        boxShadow: 4,
+                      },
+                    }}
+                  >
+                    <CardContent>
+                      {isBilingual ? (
+                        // Bilingual pair: show side by side in same card
+                        <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
+                          {/* English Quote */}
+                          <Box sx={{ flex: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                               <Chip
-                                label="Translated"
+                                icon={<LanguageIcon />}
+                                label="EN"
                                 size="small"
-                                color="warning"
+                                color="primary"
                                 variant="outlined"
                               />
+                              {pair.is_translated && (
+                                <Chip
+                                  label="Translated"
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                />
+                              )}
+                              <TextToSpeechButton text={pair.english.text} language="en" size="small" />
+                            </Box>
+                            <Typography
+                              variant="body1"
+                              sx={{
+                                fontStyle: 'italic',
+                                fontSize: '1.1rem',
+                                mb: 1,
+                                color: 'text.primary',
+                                lineHeight: 1.8,
+                              }}
+                            >
+                              "{pair.english.text}"
+                            </Typography>
+                            {pair.english.author && (
+                              <Typography variant="caption" color="text.secondary">
+                                — {pair.english.author.name}
+                              </Typography>
                             )}
                           </Box>
-                          <Typography
-                            variant="body1"
-                            sx={{
-                              fontStyle: 'italic',
-                              fontSize: '1.1rem',
-                              mb: 1,
-                              color: 'text.primary',
-                              lineHeight: 1.8,
-                            }}
-                          >
-                            "{pair.english.text}"
-                          </Typography>
-                          {pair.english.author && (
-                            <Typography variant="caption" color="text.secondary">
-                              — {pair.english.author.name}
+                          
+                          {/* Divider */}
+                          <Box 
+                            sx={{ 
+                              display: { xs: 'none', md: 'block' },
+                              width: '1px',
+                              bgcolor: 'divider',
+                              mx: 2
+                            }} 
+                          />
+                          
+                          {/* Russian Quote */}
+                          <Box sx={{ flex: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <Chip
+                                icon={<LanguageIcon />}
+                                label="RU"
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                              />
+                              {pair.is_translated && (
+                                <Chip
+                                  label="Translated"
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                />
+                              )}
+                              <TextToSpeechButton text={pair.russian.text} language="ru" size="small" />
+                            </Box>
+                            <Typography
+                              variant="body1"
+                              sx={{
+                                fontStyle: 'italic',
+                                fontSize: '1.1rem',
+                                mb: 1,
+                                color: 'text.primary',
+                                lineHeight: 1.8,
+                              }}
+                            >
+                              "{pair.russian.text}"
                             </Typography>
+                            {pair.russian.author && (
+                              <Typography variant="caption" color="text.secondary">
+                                — {pair.russian.author.name}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Box>
+                      ) : (
+                        // Single language quote: show in smaller card
+                        <Box>
+                          {pair.english && (
+                            <>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                <Chip
+                                  icon={<LanguageIcon />}
+                                  label="EN"
+                                  size="small"
+                                  color="primary"
+                                  variant="outlined"
+                                />
+                                <TextToSpeechButton text={pair.english.text} language="en" size="small" />
+                              </Box>
+                              <Typography
+                                variant="body1"
+                                sx={{
+                                  fontStyle: 'italic',
+                                  fontSize: '1.1rem',
+                                  mb: 1,
+                                  color: 'text.primary',
+                                  lineHeight: 1.8,
+                                }}
+                              >
+                                "{pair.english.text}"
+                              </Typography>
+                              {pair.english.author && (
+                                <Typography variant="caption" color="text.secondary">
+                                  — {pair.english.author.name}
+                                </Typography>
+                              )}
+                            </>
+                          )}
+                          {pair.russian && (
+                            <>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                <Chip
+                                  icon={<LanguageIcon />}
+                                  label="RU"
+                                  size="small"
+                                  color="primary"
+                                  variant="outlined"
+                                />
+                                <TextToSpeechButton text={pair.russian.text} language="ru" size="small" />
+                              </Box>
+                              <Typography
+                                variant="body1"
+                                sx={{
+                                  fontStyle: 'italic',
+                                  fontSize: '1.1rem',
+                                  mb: 1,
+                                  color: 'text.primary',
+                                  lineHeight: 1.8,
+                                }}
+                              >
+                                "{pair.russian.text}"
+                              </Typography>
+                              {pair.russian.author && (
+                                <Typography variant="caption" color="text.secondary">
+                                  — {pair.russian.author.name}
+                                </Typography>
+                              )}
+                            </>
                           )}
                         </Box>
                       )}
-                      
-                      {/* Russian Quote */}
-                      {pair.russian && (
-                        <Box sx={{ flex: 1, borderLeft: { md: '1px solid #e0e0e0' }, pl: { md: 3 } }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                            <Chip
-                              icon={<LanguageIcon />}
-                              label="RU"
-                              size="small"
-                              color="primary"
-                              variant="outlined"
-                            />
-                            {pair.is_translated && (
-                              <Chip
-                                label="Translated"
-                                size="small"
-                                color="warning"
-                                variant="outlined"
-                              />
-                            )}
-                          </Box>
-                          <Typography
-                            variant="body1"
-                            sx={{
-                              fontStyle: 'italic',
-                              fontSize: '1.1rem',
-                              mb: 1,
-                              color: 'text.primary',
-                              lineHeight: 1.8,
-                            }}
-                          >
-                            "{pair.russian.text}"
-                          </Typography>
-                          {pair.russian.author && (
-                            <Typography variant="caption" color="text.secondary">
-                              — {pair.russian.author.name}
-                            </Typography>
-                          )}
-                        </Box>
-                      )}
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
+                    </CardContent>
+                  </Card>
+                </Grid>
+              )
+            })}
           </Grid>
 
           {!loading && results.length === 0 && query && (
