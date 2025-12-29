@@ -95,13 +95,8 @@ class SearchService:
                     pair_dict["english"] = self._quote_to_dict(quote)
                     seen_quote_ids.add(quote.id)
                     
-                    # Look for matching Russian quote from same author
-                    # Use translation only for matching, not for display
-                    ru_quote = self._find_matching_quote_by_author(
-                        author_name, 'ru', 
-                        quote.source_id if quote.source else None,
-                        quote.text
-                    )
+                    # Look for actual translation (same quote in Russian)
+                    ru_quote = self._find_translation(quote, 'ru')
                     
                     if ru_quote:
                         # Skip if we've already seen this RU quote
@@ -118,13 +113,8 @@ class SearchService:
                     pair_dict["russian"] = self._quote_to_dict(quote)
                     seen_quote_ids.add(quote.id)
                     
-                    # Look for matching English quote from same author
-                    # Use translation only for matching, not for display
-                    en_quote = self._find_matching_quote_by_author(
-                        author_name, 'en',
-                        quote.source_id if quote.source else None,
-                        quote.text
-                    )
+                    # Look for actual translation (same quote in English)
+                    en_quote = self._find_translation(quote, 'en')
                     
                     if en_quote:
                         # Skip if we've already seen this EN quote
@@ -162,6 +152,84 @@ class SearchService:
             # Return empty list instead of raising exception
             # This prevents 500 errors when queries fail
             return []
+    
+    def _find_translation(
+        self,
+        quote: Quote,
+        target_language: str
+    ) -> Optional[Quote]:
+        """
+        Find the actual translation of a quote (same quote in different language).
+        
+        Uses bilingual_group_id first, then QuoteTranslation table, 
+        and only as last resort uses author-based matching with strict text similarity.
+        
+        Args:
+            quote: Source quote to find translation for
+            target_language: Target language ('en' or 'ru')
+            
+        Returns:
+            Translated quote or None if not found
+        """
+        # Method 1: Check bilingual_group_id (fastest, most reliable)
+        if quote.bilingual_group_id:
+            translated_quote = (
+                self.db.query(Quote)
+                .filter(
+                    Quote.bilingual_group_id == quote.bilingual_group_id,
+                    Quote.language == target_language,
+                    Quote.id != quote.id
+                )
+                .first()
+            )
+            if translated_quote:
+                return translated_quote
+        
+        # Method 2: Check QuoteTranslation table
+        from models import QuoteTranslation
+        
+        # Check if this quote is the source of a translation
+        translation = (
+            self.db.query(QuoteTranslation)
+            .join(
+                Quote,
+                QuoteTranslation.translated_quote_id == Quote.id
+            )
+            .filter(
+                QuoteTranslation.quote_id == quote.id,
+                Quote.language == target_language
+            )
+            .first()
+        )
+        
+        if translation:
+            return translation.translated_quote
+        
+        # Check if this quote is the target of a translation
+        translation = (
+            self.db.query(QuoteTranslation)
+            .join(
+                Quote,
+                QuoteTranslation.quote_id == Quote.id
+            )
+            .filter(
+                QuoteTranslation.translated_quote_id == quote.id,
+                Quote.language == target_language
+            )
+            .first()
+        )
+        
+        if translation:
+            return translation.quote
+        
+        # Method 3: Fallback to author-based matching with strict text similarity
+        # Only use this if no explicit translation relationship exists
+        return self._find_matching_quote_by_author(
+            quote.author.name if quote.author else None,
+            target_language,
+            quote.source_id if quote.source else None,
+            quote.text
+        )
     
     def _find_matching_quote_by_author(
         self,
@@ -253,13 +321,13 @@ class SearchService:
                     return best_match
             
             # Fallback: if source_id provided, prefer quotes from same source
-            if source_id:
-                for quote in quotes:
-                    if quote.source_id == source_id:
-                        return quote
+            # But only if we have text similarity (already checked above)
+            if source_id and best_match and best_match.source_id == source_id:
+                return best_match
             
-            # Otherwise, return first quote from this author
-            return quotes[0]
+            # Only return best match if we found one with 4+ words
+            # Do NOT return first quote from author - that's not a translation!
+            return best_match
             
         except Exception as e:
             logger.warning(f"Failed to find matching quote by author: {e}")
