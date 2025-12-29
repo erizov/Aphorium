@@ -2,6 +2,7 @@
 Russian WikiQuote scraper.
 """
 
+import re
 from typing import List, Optional
 from bs4 import BeautifulSoup
 
@@ -74,7 +75,11 @@ class WikiQuoteRuScraper(BaseScraper):
                 continue
 
             source_title = self.normalize_text(heading.get_text())
-            if not source_title or source_title.lower() in ["содержание", "навигация"]:
+            if not source_title:
+                continue
+            
+            # Validate that section heading is a valid work title
+            if not self._is_valid_source_title(source_title):
                 continue
 
             # Get quotes from this section
@@ -152,11 +157,57 @@ class WikiQuoteRuScraper(BaseScraper):
         content = soup.find("div", class_="mw-parser-output")
 
         if content:
-            # Get all list items
+            # Get all list items, but filter more carefully
             for li in content.find_all("li"):
+                # Skip if it's primarily a link
+                links = li.find_all("a", href=re.compile(r'/wiki/'))
+                if links and len(li.get_text().strip()) < 50:
+                    continue
+                
+                # Skip if in reference section
+                if li.find_parent(class_=re.compile(r'reference|citation|notes', re.IGNORECASE)):
+                    continue
+                
                 text = self.normalize_text(li.get_text())
-                if text and len(text) > 10:
+                if text and self._is_valid_quote(text):
                     quotes.append(text)
 
         return quotes
+    
+    def _is_valid_source_title(self, title: str) -> bool:
+        """
+        Check if section heading is a valid work title.
+        
+        Args:
+            title: Section heading text
+            
+        Returns:
+            True if it's a valid work title
+        """
+        # Skip navigation sections
+        nav_keywords = [
+            "содержание", "навигация", "ссылки", "внешние ссылки",
+            "см. также", "примечания", "источники", "библиография"
+        ]
+        if title.lower() in nav_keywords:
+            return False
+        
+        # Skip if it's a reference marker
+        if title.startswith("↑") or title.startswith("см."):
+            return False
+        
+        # Should be reasonably long (not just "Часть I" or "Глава 1")
+        if len(title) < 5:
+            return False
+        
+        # Skip if it matches reference patterns
+        import re
+        if re.match(r'^Часть\s+[IVX]+(?:\s*[:\-]|\s*$)', title):
+            return False
+        if re.match(r'^Глава\s+\d+(?:\s*[:\-]|\s*$)', title):
+            return False
+        if re.match(r'^Раздел\s+\d+(?:\s*[:\-]|\s*$)', title):
+            return False
+        
+        return True
 

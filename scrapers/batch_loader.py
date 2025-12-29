@@ -296,6 +296,37 @@ def get_extended_bilingual_author_list(language: str) -> List[str]:
         "C.S. Lewis", "J.K. Rowling", "Neil Gaiman",
         "Maya Angelou", "Langston Hughes", "Zora Neale Hurston",
         "Chinua Achebe", "Salman Rushdie", "Haruki Murakami",
+        # Additional English authors
+        "William Faulkner", "John Steinbeck", "Tennessee Williams",
+        "Arthur Miller", "Eugene O'Neill", "Samuel Beckett",
+        "Alice Walker", "James Baldwin", "Ralph Ellison",
+        "Richard Wright", "Gwendolyn Brooks", "Robert Hayden",
+        "Amiri Baraka", "Nikki Giovanni", "Sylvia Plath",
+        "Anne Sexton", "Adrienne Rich", "Marianne Moore",
+        "Elizabeth Bishop", "Louise Glück", "Billy Collins",
+        "Mary Oliver", "Wendell Berry", "Gary Snyder",
+        "Allen Ginsberg", "Jack Kerouac", "Charles Bukowski",
+        "Hunter S. Thompson", "Tom Wolfe", "Truman Capote",
+        "Norman Mailer", "Gore Vidal", "Philip Roth",
+        "Saul Bellow", "Bernard Malamud", "John Updike",
+        "Don DeLillo", "Thomas Pynchon", "Cormac McCarthy",
+        "David Foster Wallace", "Jonathan Franzen", "Michael Chabon",
+        "Zadie Smith", "Junot Díaz", "Jhumpa Lahiri",
+        "Amy Tan", "Maxine Hong Kingston", "Kazuo Ishiguro",
+        "Ian McEwan", "Julian Barnes", "Martin Amis",
+        "Arundhati Roy", "Vikram Seth", "Rohinton Mistry",
+        "Anita Desai", "Margaret Atwood", "Alice Munro",
+        "Robertson Davies", "Michael Ondaatje", "Yann Martel",
+        "Leonard Cohen", "Stephen King", "Dan Brown",
+        "John Grisham", "Agatha Christie", "Arthur Conan Doyle",
+        "Raymond Chandler", "Dashiell Hammett", "Patricia Highsmith",
+        "Gillian Flynn", "Stieg Larsson", "Jo Nesbø",
+        "Henning Mankell", "Donna Tartt", "Umberto Eco",
+        "Italo Calvino", "Primo Levi", "José Saramago",
+        "Fernando Pessoa", "Octavio Paz", "Carlos Fuentes",
+        "Isabel Allende", "Mario Vargas Llosa", "Julio Cortázar",
+        "Jorge Luis Borges", "Clarice Lispector", "Paulo Coelho",
+        "Machado de Assis", "Haruki Murakami",
     ],
     "ru": [
         "Александр Пушкин", "Фёдор Достоевский", "Лев Толстой",
@@ -322,9 +353,52 @@ def get_extended_bilingual_author_list(language: str) -> List[str]:
         "Валерий Брюсов", "Константин Бальмонт", "Иннокентий Анненский",
         "Велимир Хлебников", "Осип Мандельштам", "Борис Акунин",
         "Виктор Пелевин", "Людмила Улицкая", "Татьяна Толстая",
+        # Additional Russian authors
+        "Михаил Лермонтов", "Николай Карамзин", "Иван Крылов",
+        "Александр Грибоедов", "Александр Островский", "Иван Гончаров",
+        "Николай Лесков", "Алексей Толстой", "Владимир Короленко",
+        "Дмитрий Мережковский", "Зинаида Гиппиус", "Андрей Белый",
+        "Вячеслав Иванов", "Фёдор Сологуб", "Леонид Андреев",
+        "Александр Куприн", "Алексей Ремизов", "Евгений Замятин",
+        "Андрей Платонов", "Исаак Бабель", "Юрий Олеша",
+        "Михаил Зощенко", "Валентин Катаев", "Константин Паустовский",
+        "Владимир Обручев", "Михаил Шолохов", "Александр Фадеев",
+        "Василий Гроссман", "Александр Твардовский", "Константин Симонов",
+        "Василий Шукшин", "Юрий Трифонов", "Валентин Распутин",
+        "Виктор Астафьев", "Василий Белов", "Юрий Бондарев",
+        "Владимир Богомолов", "Григорий Бакланов", "Борис Васильев",
+        "Юрий Домбровский", "Варлам Шаламов", "Владимир Войнович",
+        "Александр Зиновьев", "Сергей Довлатов", "Владимир Высоцкий",
+        "Булат Окуджава", "Александр Галич", "Юлий Ким",
+        "Андрей Вознесенский", "Евгений Евтушенко", "Белла Ахмадулина",
+        "Роберт Рождественский", "Владимир Соколов", "Давид Самойлов",
+        "Арсений Тарковский", "Борис Слуцкий", "Семён Липкин",
+        "Наум Коржавин", "Игорь Губерман", "Юнна Мориц",
+        "Андрей Битов", "Владимир Сорокин", "Людмила Петрушевская",
+        "Виктор Ерофеев", "Дмитрий Быков", "Захар Прилепин",
+        "Михаил Елизаров", "Александр Проханов", "Эдуард Лимонов",
+        "Александр Вампилов", "Михаил Салтыков-Щедрин", "Гавриил Державин",
+        "Василий Жуковский", "Константин Батюшков", "Евгений Баратынский",
+        "Александр Полежаев", "Михаил Ломоносов", "Александр Сумароков",
+        "Василий Тредиаковский", "Денис Фонвизин", "Александр Радищев",
+        "Николай Новиков", "Иван Дмитриев", "Василий Капнист",
+        "Григорий Державин", "Александр Бестужев-Марлинский",
+        "Вильгельм Кюхельбекер", "Антон Дельвиг", "Пётр Вяземский",
+        "Денис Давыдов", "Александр Одоевский", "Николай Языков",
+        "Алексей Хомяков", "Иван Киреевский", "Константин Аксаков",
+        "Юрий Самарин", "Александр Герцен", "Николай Огарёв",
+        "Александр Сухово-Кобылин", "Алексей Писемский",
+        "Глеб Успенский", "Владимир Гиляровский", "Николай Гумилёв",
     ]
     }
-    return extended.get(language, [])
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_list = []
+    for author in extended.get(language, []):
+        if author not in seen:
+            seen.add(author)
+            unique_list.append(author)
+    return unique_list
 
 
 def load_from_file(filepath: str) -> List[str]:

@@ -72,12 +72,16 @@ def sanitize_search_query(query: str, max_length: int = 500) -> str:
     - SQLite LIKE queries
     - SQL injection attempts
     
+    For quoted phrases (e.g., "a love is"), strips surrounding quotes.
+    plainto_tsquery will still match the phrase (words in order) without quotes.
+    This allows phrase matching without requiring exact quotes in the query.
+    
     Args:
         query: Raw search query
         max_length: Maximum allowed query length
         
     Returns:
-        Sanitized query safe for database operations
+        Sanitized query safe for database operations (quotes removed for phrase matching)
     """
     if not query:
         return ""
@@ -91,6 +95,14 @@ def sanitize_search_query(query: str, max_length: int = 500) -> str:
     # Remove control characters except newlines and tabs
     query = ''.join(char for char in query if char.isprintable() or char in '\n\t')
     
+    # Strip surrounding quotes if present (for phrase search)
+    # This allows users to search "a love is" and get phrase matches
+    # plainto_tsquery will match words in order, which is what we want for phrases
+    query = query.strip()
+    if (query.startswith('"') and query.endswith('"')) or \
+       (query.startswith("'") and query.endswith("'")):
+        query = query[1:-1].strip()
+    
     # Normalize whitespace (but preserve hyphens for phrases like "Dual-language")
     # Replace multiple spaces with single space, but keep hyphens
     query = re.sub(r'[ \t]+', ' ', query)
@@ -98,6 +110,7 @@ def sanitize_search_query(query: str, max_length: int = 500) -> str:
     
     # plainto_tsquery handles most special characters automatically
     # It treats them as word separators, which is fine for our use case
+    # For multi-word queries, plainto_tsquery matches them as phrases (words in order)
     # We just need to ensure the query is not empty after sanitization
     
     return query

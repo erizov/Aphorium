@@ -29,8 +29,10 @@ except ImportError:
     logger.warning("Cleanup script not available - skipping post-load cleanup")
 
 PROGRESS_FILE = "data/quote_20k_loading_progress.json"
-TARGET_QUOTES = 20000
+TARGET_QUOTES = 30000  # Target: 30k total quotes
 PROGRESS_REPORT_INTERVAL = 500  # Report every 500 records
+PROGRESS_REPORT_TIME_INTERVAL = 300  # Report every 5 minutes (300 seconds)
+MAX_RUNTIME_HOURS = 6  # Stop after 6 hours
 
 
 def load_progress() -> Dict[str, Any]:
@@ -48,8 +50,13 @@ def load_progress() -> Dict[str, Any]:
         "ru_index": 0,
         "total_quotes_loaded": 0,
         "last_reported_count": 0,
+        "last_report_time": None,
         "authors_processed_en": 0,
         "authors_processed_ru": 0,
+        "quotes_inserted_en": 0,
+        "quotes_inserted_ru": 0,
+        "quotes_rejected_en": 0,
+        "quotes_rejected_ru": 0,
     }
 
 
@@ -76,9 +83,11 @@ def report_progress(
     target: int,
     language: str,
     authors_processed: int,
-    quotes_in_batch: int
+    quotes_inserted: int,
+    quotes_rejected: int,
+    elapsed_time: float
 ) -> None:
-    """Report progress every PROGRESS_REPORT_INTERVAL records."""
+    """Report progress every PROGRESS_REPORT_INTERVAL records or time."""
     remaining = max(0, target - current_count)
     progress_pct = (current_count / target * 100) if target > 0 else 0
     
@@ -89,7 +98,12 @@ def report_progress(
     logger.info(f"Remaining: {remaining:,} quotes")
     logger.info(f"Language: {language.upper()}")
     logger.info(f"Authors processed ({language}): {authors_processed}")
-    logger.info(f"Quotes in this batch: {quotes_in_batch}")
+    logger.info(f"Quotes inserted ({language}): {quotes_inserted:,}")
+    logger.info(f"Quotes rejected ({language}): {quotes_rejected:,}")
+    if quotes_inserted + quotes_rejected > 0:
+        rejection_rate = (quotes_rejected / (quotes_inserted + quotes_rejected)) * 100
+        logger.info(f"Rejection rate ({language}): {rejection_rate:.1f}%")
+    logger.info(f"Time elapsed: {elapsed_time:.1f}s ({elapsed_time/60:.1f} min)")
     logger.info("=" * 70)
 
 
@@ -99,6 +113,7 @@ def load_quotes_for_language(
     start_index: int,
     target_remaining: int,
     progress: Dict[str, Any],
+    start_time: float,
     authors_per_chunk: int = 5,
     workers: int = 3
 ) -> tuple:
@@ -106,13 +121,15 @@ def load_quotes_for_language(
     Load quotes for a single language.
     
     Returns:
-        (quotes_loaded, new_index, authors_processed)
+        (quotes_loaded, new_index, authors_processed, quotes_inserted, quotes_rejected)
     """
     db = SessionLocal()
     quote_repo = QuoteRepository(db)
     
     total_quotes_loaded = 0
     authors_processed = 0
+    quotes_inserted = 0
+    quotes_rejected = 0
     idx = start_index
     
     logger.info("=" * 70)
@@ -121,7 +138,14 @@ def load_quotes_for_language(
     logger.info(f"Target: {target_remaining:,} more quotes needed")
     logger.info("=" * 70)
     
-    while idx < len(authors) and total_quotes_loaded < target_remaining:
+    while total_quotes_loaded < target_remaining:
+        # idx < len(authors) and 
+        # Check time limit (6 hours)
+        elapsed_time = time.time() - start_time
+        if elapsed_time >= MAX_RUNTIME_HOURS * 3600:
+            logger.warning(f"⏰ Time limit reached ({MAX_RUNTIME_HOURS} hours). Stopping.")
+            break
+        
         chunk = authors[idx:idx + authors_per_chunk]
         if not chunk:
             break
@@ -138,27 +162,47 @@ def load_quotes_for_language(
         
         elapsed = time.time() - chunk_start
         quotes_in_chunk = stats.get("quotes_created", 0)
+        rejected_in_chunk = stats.get("quotes_rejected", 0)
         
         # Get current database count
         current_count = get_current_quote_count()
         total_quotes_loaded += quotes_in_chunk
+        quotes_inserted += quotes_in_chunk
+        quotes_rejected += rejected_in_chunk
         authors_processed += stats.get("authors_processed", 0)
         
         logger.info(
-            f"✅ Loaded {quotes_in_chunk} quotes in {elapsed:.1f}s "
-            f"(Total: {current_count:,} quotes)"
+            f"✅ Loaded {quotes_in_chunk} quotes, rejected {rejected_in_chunk} "
+            f"in {elapsed:.1f}s (Total: {current_count:,} quotes)"
         )
         
         # Report progress every PROGRESS_REPORT_INTERVAL records
-        if current_count - progress["last_reported_count"] >= PROGRESS_REPORT_INTERVAL:
+        should_report_by_count = (
+            current_count - progress["last_reported_count"] >= PROGRESS_REPORT_INTERVAL
+        )
+        
+        # Report progress every PROGRESS_REPORT_TIME_INTERVAL (5 minutes)
+        current_time = time.time()
+        last_report_time = progress.get("last_report_time")
+        should_report_by_time = (
+            last_report_time is None or
+            (current_time - last_report_time) >= PROGRESS_REPORT_TIME_INTERVAL
+        )
+        
+        if should_report_by_count or should_report_by_time:
             report_progress(
                 current_count,
                 TARGET_QUOTES,
                 language,
                 authors_processed,
-                quotes_in_chunk
+                quotes_inserted,
+                quotes_rejected,
+                elapsed_time
             )
             progress["last_reported_count"] = current_count
+            progress["last_report_time"] = current_time
+            progress[f"quotes_inserted_{language}"] = quotes_inserted
+            progress[f"quotes_rejected_{language}"] = quotes_rejected
             save_progress(progress)
         
         idx += len(chunk)
@@ -172,7 +216,7 @@ def load_quotes_for_language(
         time.sleep(0.5)
     
     db.close()
-    return total_quotes_loaded, idx, authors_processed
+    return total_quotes_loaded, idx, authors_processed, quotes_inserted, quotes_rejected
 
 
 def main() -> None:
@@ -217,8 +261,13 @@ def main() -> None:
             "ru_index": 0,
             "total_quotes_loaded": 0,
             "last_reported_count": 0,
+            "last_report_time": None,
             "authors_processed_en": 0,
             "authors_processed_ru": 0,
+            "quotes_inserted_en": 0,
+            "quotes_inserted_ru": 0,
+            "quotes_rejected_en": 0,
+            "quotes_rejected_ru": 0,
         }
         save_progress(progress)
         logger.info("Progress reset. Starting from beginning.")
@@ -248,52 +297,182 @@ def main() -> None:
     
     start_time = time.time()
     
-    # Load English quotes
-    if args.lang in ["en", "both"]:
-        en_authors = get_extended_bilingual_author_list("en")
-        en_remaining = target_remaining
+    # Main loading loop - continue until target reached or time limit exceeded
+    iteration = 0
+    while True:
+        iteration += 1
+        elapsed_time = time.time() - start_time
         
-        if current_count < TARGET_QUOTES and progress["en_index"] < len(en_authors):
-            en_loaded, en_idx, en_authors_proc = load_quotes_for_language(
-                "en",
-                en_authors,
-                progress["en_index"],
-                en_remaining,
-                progress,
-                authors_per_chunk=args.authors_per_chunk,
-                workers=args.workers
-            )
+        # Check time limit
+        if elapsed_time >= MAX_RUNTIME_HOURS * 3600:
+            logger.warning(f"⏰ Time limit reached ({MAX_RUNTIME_HOURS} hours). Stopping.")
+            break
+        
+        # Get current counts
+        current_count = get_current_quote_count()
+        if current_count >= TARGET_QUOTES:
+            logger.info(f"✅ Reached target of {TARGET_QUOTES:,} quotes!")
+            break
+        
+        # Get current language counts to prioritize Russian
+        db = SessionLocal()
+        try:
+            from models import Quote
+            en_count = db.query(Quote).filter(Quote.language == 'en').count()
+            ru_count = db.query(Quote).filter(Quote.language == 'ru').count()
             
-            progress["en_index"] = en_idx
-            progress["authors_processed_en"] += en_authors_proc
-            progress["total_quotes_loaded"] += en_loaded
+            if iteration == 1:
+                logger.info(f"Current counts: EN={en_count:,}, RU={ru_count:,}")
             
-            current_count = get_current_quote_count()
-            target_remaining = max(0, TARGET_QUOTES - current_count)
-            save_progress(progress)
+            # Target: balance towards more Russian quotes
+            # Aim for at least 40% Russian quotes (or equal if possible)
+            target_ru_ratio = 0.4
+            target_ru_count = int(TARGET_QUOTES * target_ru_ratio)
+            target_en_count = TARGET_QUOTES - target_ru_count
+            
+            ru_needed = max(0, target_ru_count - ru_count)
+            en_needed = max(0, target_en_count - en_count)
+            
+            if iteration == 1:
+                logger.info(
+                    f"Targets: EN={target_en_count:,} (need {en_needed:,}), "
+                    f"RU={target_ru_count:,} (need {ru_needed:,})"
+                )
+        finally:
+            db.close()
+        
+        # Track if we made progress this iteration
+        quotes_before_iteration = current_count
+        
+        # PRIORITIZE RUSSIAN: Load Russian quotes first to increase their count
+        if args.lang in ["ru", "both"] and ru_needed > 0:
+            ru_authors = get_extended_bilingual_author_list("ru")
+            
+            if progress["ru_index"] < len(ru_authors):
+                if iteration == 1:
+                    logger.info("=" * 70)
+                    logger.info("PRIORITIZING RUSSIAN QUOTES")
+                    logger.info(f"Need {ru_needed:,} more Russian quotes")
+                    logger.info("=" * 70)
+                
+                ru_loaded, ru_idx, ru_authors_proc, ru_inserted, ru_rejected = (
+                    load_quotes_for_language(
+                        "ru",
+                        ru_authors,
+                        progress["ru_index"],
+                        ru_needed,
+                        progress,
+                        start_time,
+                        authors_per_chunk=args.authors_per_chunk,
+                        workers=args.workers
+                    )
+                )
+                
+                progress["ru_index"] = ru_idx
+                progress["authors_processed_ru"] += ru_authors_proc
+                progress["total_quotes_loaded"] += ru_loaded
+                progress["quotes_inserted_ru"] = (
+                    progress.get("quotes_inserted_ru", 0) + ru_inserted
+                )
+                progress["quotes_rejected_ru"] = (
+                    progress.get("quotes_rejected_ru", 0) + ru_rejected
+                )
+                
+                current_count = get_current_quote_count()
+                save_progress(progress)
+        
+        # Load English quotes (after Russian priority)
+        if args.lang in ["en", "both"] and en_needed > 0:
+            en_authors = get_extended_bilingual_author_list("en")
+            
+            if current_count < TARGET_QUOTES and progress["en_index"] < len(en_authors):
+                en_loaded, en_idx, en_authors_proc, en_inserted, en_rejected = (
+                    load_quotes_for_language(
+                        "en",
+                        en_authors,
+                        progress["en_index"],
+                        en_needed,
+                        progress,
+                        start_time,
+                        authors_per_chunk=args.authors_per_chunk,
+                        workers=args.workers
+                    )
+                )
+                
+                progress["en_index"] = en_idx
+                progress["authors_processed_en"] += en_authors_proc
+                progress["total_quotes_loaded"] += en_loaded
+                progress["quotes_inserted_en"] = (
+                    progress.get("quotes_inserted_en", 0) + en_inserted
+                )
+                progress["quotes_rejected_en"] = (
+                    progress.get("quotes_rejected_en", 0) + en_rejected
+                )
+                
+                current_count = get_current_quote_count()
+                target_remaining = max(0, TARGET_QUOTES - current_count)
+                save_progress(progress)
     
-    # Load Russian quotes
-    if args.lang in ["ru", "both"] and current_count < TARGET_QUOTES:
-        ru_authors = get_extended_bilingual_author_list("ru")
-        ru_remaining = target_remaining
+        # Continue loading Russian if still needed
+        if args.lang in ["ru", "both"] and current_count < TARGET_QUOTES:
+            ru_authors = get_extended_bilingual_author_list("ru")
+            ru_remaining = max(0, TARGET_QUOTES - current_count)
+            
+            if progress["ru_index"] < len(ru_authors):
+                ru_loaded, ru_idx, ru_authors_proc, ru_inserted, ru_rejected = (
+                    load_quotes_for_language(
+                        "ru",
+                        ru_authors,
+                        progress["ru_index"],
+                        ru_remaining,
+                        progress,
+                        start_time,
+                        authors_per_chunk=args.authors_per_chunk,
+                        workers=args.workers
+                    )
+                )
+                
+                progress["ru_index"] = ru_idx
+                progress["authors_processed_ru"] += ru_authors_proc
+                progress["total_quotes_loaded"] += ru_loaded
+                progress["quotes_inserted_ru"] = (
+                    progress.get("quotes_inserted_ru", 0) + ru_inserted
+                )
+                progress["quotes_rejected_ru"] = (
+                    progress.get("quotes_rejected_ru", 0) + ru_rejected
+                )
+                
+                current_count = get_current_quote_count()
+                save_progress(progress)
         
-        if progress["ru_index"] < len(ru_authors):
-            ru_loaded, ru_idx, ru_authors_proc = load_quotes_for_language(
-                "ru",
-                ru_authors,
-                progress["ru_index"],
-                ru_remaining,
-                progress,
-                authors_per_chunk=args.authors_per_chunk,
-                workers=args.workers
-            )
+        # Check if we made progress - if not, we might be stuck
+        quotes_after_iteration = get_current_quote_count()
+        
+        # Update current_count for next iteration checks
+        current_count = quotes_after_iteration
+        
+        if quotes_after_iteration == quotes_before_iteration:
+            logger.warning("No progress made this iteration. Checking if we can continue...")
+            # Check if we've exhausted all authors
+            ru_authors = get_extended_bilingual_author_list("ru")
+            en_authors = get_extended_bilingual_author_list("en")
             
-            progress["ru_index"] = ru_idx
-            progress["authors_processed_ru"] += ru_authors_proc
-            progress["total_quotes_loaded"] += ru_loaded
+            ru_exhausted = False #progress["ru_index"] >= len(ru_authors)
+            en_exhausted = False #progress["en_index"] >= len(en_authors)
             
-            current_count = get_current_quote_count()
-            save_progress(progress)
+            if (args.lang == "ru" and ru_exhausted) or \
+               (args.lang == "en" and en_exhausted) or \
+               (args.lang == "both" and ru_exhausted and en_exhausted):
+                logger.warning("All authors processed. Cannot continue loading.")
+                break
+            else:
+                logger.info("Continuing to next iteration...")
+                # Small delay before next iteration
+                time.sleep(2)
+        else:
+            logger.info(f"Progress: {quotes_before_iteration} → {quotes_after_iteration} (+{quotes_after_iteration - quotes_before_iteration})")
+            # Continue to next iteration
+            time.sleep(1)
     
     # Final report
     elapsed = time.time() - start_time
@@ -307,6 +486,10 @@ def main() -> None:
     logger.info(f"Time elapsed: {elapsed:.1f} seconds ({elapsed/60:.1f} minutes)")
     logger.info(f"Authors processed (EN): {progress['authors_processed_en']}")
     logger.info(f"Authors processed (RU): {progress['authors_processed_ru']}")
+    logger.info(f"Quotes inserted (EN): {progress.get('quotes_inserted_en', 0):,}")
+    logger.info(f"Quotes inserted (RU): {progress.get('quotes_inserted_ru', 0):,}")
+    logger.info(f"Quotes rejected (EN): {progress.get('quotes_rejected_en', 0):,}")
+    logger.info(f"Quotes rejected (RU): {progress.get('quotes_rejected_ru', 0):,}")
     logger.info(f"Total quotes loaded this run: {progress['total_quotes_loaded']}")
     logger.info("=" * 70)
     
@@ -330,7 +513,24 @@ def main() -> None:
         logger.info("")
         logger.info("=" * 70)
         logger.info(f"⚠️  Still need {remaining:,} more quotes to reach target")
-        logger.info("Run again to continue loading")
+        # Check why we stopped
+        ru_authors = get_extended_bilingual_author_list("ru")
+        en_authors = get_extended_bilingual_author_list("en")
+        ru_exhausted = False #progress["ru_index"] >= len(ru_authors)
+        en_exhausted = False #progress["en_index"] >= len(en_authors)
+        
+        if ru_exhausted and en_exhausted:
+            logger.info("All authors have been processed.")
+            logger.info("To restart from beginning (duplicate detection will prevent re-inserts):")
+            logger.info("  python load_20k_quotes.py --reset --lang both")
+        elif elapsed >= MAX_RUNTIME_HOURS * 3600:
+            logger.info("Time limit reached (6 hours).")
+            logger.info("Run again to continue loading:")
+            logger.info("  python load_20k_quotes.py --lang both")
+        else:
+            logger.info("Loader stopped. Check logs for details.")
+            logger.info("Run again to continue loading:")
+            logger.info("  python load_20k_quotes.py --lang both")
         logger.info("=" * 70)
 
 

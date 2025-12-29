@@ -92,6 +92,7 @@ class Quote(Base):
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=True)
     language = Column(String(10), nullable=False)
     search_vector = Column(SearchVectorType(), nullable=True)  # Full-text search
+    bilingual_group_id = Column(Integer, nullable=True, index=True)  # Groups EN/RU pairs
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
 
     # Relationships
@@ -112,6 +113,8 @@ class Quote(Base):
     __table_args__ = (
         Index("idx_quotes_language", "language"),
         Index("idx_quotes_author", "author_id"),
+        Index("idx_quotes_bilingual_group", "bilingual_group_id"),
+        Index("idx_quotes_group_language", "bilingual_group_id", "language"),
     )
 
     def __repr__(self) -> str:

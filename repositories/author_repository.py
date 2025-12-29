@@ -137,4 +137,22 @@ class AuthorRepository:
         except Exception as e:
             logger.error(f"Failed to get or create author: {e}")
             raise
+    
+    def get_unknown_author(self, language: str) -> Author:
+        """
+        Get or create an "Unknown" author for quotes without attribution.
+        
+        Args:
+            language: Language code ('en' or 'ru')
+            
+        Returns:
+            Author object with name "Unknown"
+        """
+        unknown_name = "Unknown" if language == "en" else "Неизвестный"
+        return self.get_or_create(
+            name=unknown_name,
+            language=language,
+            bio=None,
+            wikiquote_url=None
+        )
 

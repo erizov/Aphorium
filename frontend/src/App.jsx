@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Container,
   AppBar,
@@ -16,16 +16,34 @@ import {
   IconButton,
   ThemeProvider,
   createTheme,
-  CssBaseline
+  CssBaseline,
+  Tooltip,
+  Menu,
+  MenuItem,
+  Divider,
+  Snackbar
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import LanguageIcon from '@mui/icons-material/Language'
+import DarkModeIcon from '@mui/icons-material/DarkMode'
+import LightModeIcon from '@mui/icons-material/LightMode'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import FileDownloadIcon from '@mui/icons-material/FileDownload'
+import HistoryIcon from '@mui/icons-material/History'
+import CasinoIcon from '@mui/icons-material/Casino'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import axios from 'axios'
 import TextToSpeechButton from './components/TextToSpeechButton'
+import { useLocalStorage } from './hooks/useLocalStorage'
+import { exportToCSV, copyToClipboard } from './utils/exportUtils'
 
-const theme = createTheme({
+const API_BASE = '/api'
+
+// Create light and dark themes
+const lightTheme = createTheme({
   palette: {
+    mode: 'light',
     primary: {
       main: '#667eea',
     },
@@ -43,7 +61,26 @@ const theme = createTheme({
   },
 })
 
-const API_BASE = '/api'
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+    primary: {
+      main: '#667eea',
+    },
+    secondary: {
+      main: '#764ba2',
+    },
+    background: {
+      default: '#121212',
+      paper: '#1e1e1e',
+    },
+  },
+  typography: {
+    h4: {
+      fontWeight: 600,
+    },
+  },
+})
 
 function App() {
   const [query, setQuery] = useState('')
@@ -51,13 +88,33 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [preferBilingual, setPreferBilingual] = useState(true)
+  const [darkMode, setDarkMode] = useLocalStorage('darkMode', false)
+  const [searchHistory, setSearchHistory] = useLocalStorage('searchHistory', [])
+  const [snackbar, setSnackbar] = useState({ open: false, message: '' })
+  const [historyMenuAnchor, setHistoryMenuAnchor] = useState(null)
+
+  const theme = darkMode ? darkTheme : lightTheme
+
+  // Load search history on mount
+  useEffect(() => {
+    // Initialize with empty array if not exists
+    if (!Array.isArray(searchHistory)) {
+      setSearchHistory([])
+    }
+  }, [])
+
+  const showSnackbar = (message) => {
+    setSnackbar({ open: true, message })
+  }
 
   const handleSearch = async () => {
     if (!query.trim()) return
 
+    const searchQuery = query.trim()
+
     // Log search input in frontend for visibility/debugging
     console.info('[Search]', {
-      query: query.trim(),
+      query: searchQuery,
       preferBilingual,
       timestamp: new Date().toISOString()
     })
@@ -68,18 +125,84 @@ function App() {
     try {
       const response = await axios.get(`${API_BASE}/quotes/search`, {
         params: {
-          q: query,
+          q: searchQuery,
           limit: 50,
           prefer_bilingual: preferBilingual,
         },
       })
       setResults(response.data)
+
+      // Add to search history (max 20 items)
+      const newHistory = [
+        searchQuery,
+        ...searchHistory.filter(item => item !== searchQuery)
+      ].slice(0, 20)
+      setSearchHistory(newHistory)
     } catch (err) {
       setError(err.message || 'Failed to search quotes')
       setResults([])
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleRandomQuote = async () => {
+    setLoading(true)
+    setError(null)
+    setQuery('')
+
+    try {
+      const response = await axios.get(`${API_BASE}/quotes/random`)
+      setResults([response.data])
+      showSnackbar('Random quote loaded!')
+    } catch (err) {
+      setError(err.message || 'Failed to load random quote')
+      setResults([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCopyQuote = async (text) => {
+    const success = await copyToClipboard(text)
+    if (success) {
+      showSnackbar('Quote copied to clipboard!')
+    } else {
+      showSnackbar('Failed to copy quote')
+    }
+  }
+
+  const handleExportCSV = () => {
+    if (results.length === 0) {
+      showSnackbar('No quotes to export')
+      return
+    }
+    const timestamp = new Date().toISOString().split('T')[0]
+    exportToCSV(results, `quotes_export_${timestamp}.csv`)
+    showSnackbar(`Exported ${results.length} quotes to CSV`)
+  }
+
+  const handleHistoryClick = (event) => {
+    setHistoryMenuAnchor(event.currentTarget)
+  }
+
+  const handleHistoryClose = () => {
+    setHistoryMenuAnchor(null)
+  }
+
+  const handleHistorySelect = (historyItem) => {
+    setQuery(historyItem)
+    setHistoryMenuAnchor(null)
+    // Trigger search after a short delay to allow state update
+    setTimeout(() => {
+      handleSearch()
+    }, 100)
+  }
+
+  const handleClearHistory = () => {
+    setSearchHistory([])
+    setHistoryMenuAnchor(null)
+    showSnackbar('Search history cleared')
   }
 
   const handleKeyPress = (e) => {
@@ -98,9 +221,61 @@ function App() {
             <Typography variant="h5" component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
               Aphorium
             </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              Learn languages through quotes
-            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Tooltip title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+                <IconButton
+                  color="inherit"
+                  onClick={() => setDarkMode(!darkMode)}
+                  aria-label="Toggle dark mode"
+                >
+                  {darkMode ? <LightModeIcon /> : <DarkModeIcon />}
+                </IconButton>
+              </Tooltip>
+              {searchHistory.length > 0 && (
+                <>
+                  <Tooltip title="Search history">
+                    <IconButton
+                      color="inherit"
+                      onClick={handleHistoryClick}
+                      aria-label="Search history"
+                    >
+                      <HistoryIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Menu
+                    anchorEl={historyMenuAnchor}
+                    open={Boolean(historyMenuAnchor)}
+                    onClose={handleHistoryClose}
+                    PaperProps={{
+                      sx: { maxHeight: 300, width: 250 }
+                    }}
+                  >
+                    <MenuItem disabled>
+                      <Typography variant="caption" color="text.secondary">
+                        Recent Searches
+                      </Typography>
+                    </MenuItem>
+                    <Divider />
+                    {searchHistory.map((item, index) => (
+                      <MenuItem
+                        key={index}
+                        onClick={() => handleHistorySelect(item)}
+                      >
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                          {item}
+                        </Typography>
+                      </MenuItem>
+                    ))}
+                    <Divider />
+                    <MenuItem onClick={handleClearHistory}>
+                      <Typography variant="body2" color="error">
+                        Clear History
+                      </Typography>
+                    </MenuItem>
+                  </Menu>
+                </>
+              )}
+            </Box>
           </Toolbar>
         </AppBar>
 
@@ -110,7 +285,7 @@ function App() {
               textAlign: 'center',
               mb: 4,
               p: 4,
-              bgcolor: 'white',
+              bgcolor: 'background.paper',
               borderRadius: 2,
               boxShadow: 2,
             }}
@@ -126,7 +301,7 @@ function App() {
               💡 Tip: Use quotes for exact phrases (e.g., "a love is"), or search without quotes for broader matches
             </Typography>
 
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center' }}>
               <TextField
                 fullWidth
                 variant="outlined"
@@ -152,15 +327,37 @@ function App() {
               >
                 {loading ? <CircularProgress size={24} /> : 'Search'}
               </Button>
+              <Tooltip title="Get random quote">
+                <IconButton
+                  color="primary"
+                  onClick={handleRandomQuote}
+                  disabled={loading}
+                  size="large"
+                  sx={{ border: 1, borderColor: 'primary.main' }}
+                >
+                  <CasinoIcon />
+                </IconButton>
+              </Tooltip>
             </Box>
 
-            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', gap: 2 }}>
+            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
               <Chip
                 label="Prefer bilingual quotes"
                 color={preferBilingual ? 'primary' : 'default'}
                 onClick={() => setPreferBilingual(!preferBilingual)}
                 clickable
               />
+              {results.length > 0 && (
+                <Tooltip title="Export results to CSV">
+                  <Chip
+                    icon={<FileDownloadIcon />}
+                    label="Export CSV"
+                    color="secondary"
+                    onClick={handleExportCSV}
+                    clickable
+                  />
+                </Tooltip>
+              )}
             </Box>
           </Box>
 
@@ -171,7 +368,7 @@ function App() {
           )}
 
           {results.length > 0 && (
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6" color="text.secondary">
                 Found {results.length} quote{results.length !== 1 ? 's' : ''}
               </Typography>
@@ -194,7 +391,7 @@ function App() {
                   <Card
                     sx={{
                       borderLeft: isBilingual ? '4px solid #27ae60' : '4px solid #667eea',
-                      bgcolor: isBilingual ? 'rgba(39, 174, 96, 0.05)' : 'white',
+                      bgcolor: isBilingual ? 'rgba(39, 174, 96, 0.05)' : 'background.paper',
                       transition: 'transform 0.2s, box-shadow 0.2s',
                       '&:hover': {
                         transform: 'translateY(-4px)',
@@ -208,7 +405,7 @@ function App() {
                         <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
                           {/* English Quote */}
                           <Box sx={{ flex: 1 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
                               <Chip
                                 icon={<LanguageIcon />}
                                 label="EN"
@@ -225,6 +422,15 @@ function App() {
                                 />
                               )}
                               <TextToSpeechButton text={pair.english.text} language="en" size="small" />
+                              <Tooltip title="Copy quote">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleCopyQuote(pair.english.text)}
+                                  sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
+                                >
+                                  <ContentCopyIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             </Box>
                             <Typography
                               variant="body1"
@@ -257,7 +463,7 @@ function App() {
                           
                           {/* Russian Quote */}
                           <Box sx={{ flex: 1 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
                               <Chip
                                 icon={<LanguageIcon />}
                                 label="RU"
@@ -274,6 +480,15 @@ function App() {
                                 />
                               )}
                               <TextToSpeechButton text={pair.russian.text} language="ru" size="small" />
+                              <Tooltip title="Copy quote">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleCopyQuote(pair.russian.text)}
+                                  sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
+                                >
+                                  <ContentCopyIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             </Box>
                             <Typography
                               variant="body1"
@@ -299,7 +514,7 @@ function App() {
                         <Box>
                           {pair.english && (
                             <>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
                                 <Chip
                                   icon={<LanguageIcon />}
                                   label="EN"
@@ -308,6 +523,15 @@ function App() {
                                   variant="outlined"
                                 />
                                 <TextToSpeechButton text={pair.english.text} language="en" size="small" />
+                                <Tooltip title="Copy quote">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleCopyQuote(pair.english.text)}
+                                    sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
+                                  >
+                                    <ContentCopyIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
                               </Box>
                               <Typography
                                 variant="body1"
@@ -330,7 +554,7 @@ function App() {
                           )}
                           {pair.russian && (
                             <>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
                                 <Chip
                                   icon={<LanguageIcon />}
                                   label="RU"
@@ -339,6 +563,15 @@ function App() {
                                   variant="outlined"
                                 />
                                 <TextToSpeechButton text={pair.russian.text} language="ru" size="small" />
+                                <Tooltip title="Copy quote">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleCopyQuote(pair.russian.text)}
+                                    sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
+                                  >
+                                    <ContentCopyIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
                               </Box>
                               <Typography
                                 variant="body1"
@@ -387,13 +620,29 @@ function App() {
               <Typography variant="body2" color="text.secondary">
                 Try searching for: "love", "wisdom", "любовь", "мудрость"
               </Typography>
+              <Button
+                variant="outlined"
+                startIcon={<CasinoIcon />}
+                onClick={handleRandomQuote}
+                disabled={loading}
+                sx={{ mt: 2 }}
+              >
+                Or get a random quote
+              </Button>
             </Box>
           )}
         </Container>
+
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={3000}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          message={snackbar.message}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        />
       </Box>
     </ThemeProvider>
   )
 }
 
 export default App
-

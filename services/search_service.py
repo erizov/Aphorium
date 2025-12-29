@@ -10,6 +10,7 @@ from sqlalchemy import func
 
 from repositories.quote_repository import QuoteRepository
 from repositories.translation_repository import TranslationRepository
+from services.bilingual_pair_builder import BilingualPairBuilder
 from models import Quote
 from utils.translator import get_bilingual_search_queries
 from logger_config import logger
@@ -28,6 +29,7 @@ class SearchService:
         self.db = db
         self.quote_repo = QuoteRepository(db)
         self.translation_repo = TranslationRepository(db)
+        self.pair_builder = BilingualPairBuilder(db)
 
     def search(
         self,
@@ -59,88 +61,19 @@ class SearchService:
                 lang_filter = language
 
             # Search for quotes matching the query
-            # Don't translate the query - search for quotes that exist
-            search_limit = limit * 2  # Get more quotes to find pairs
+            # Get more quotes to find pairs
+            search_limit = limit * 2
             quotes = self.quote_repo.search(
                 query=query,
                 language=lang_filter,
                 limit=search_limit
             )
             
-            # Build bilingual pairs
-            results = []
-            seen_pairs = set()  # Track pairs we've already added (en_id, ru_id)
-            seen_quote_ids = set()  # Track individual quote IDs to prevent duplicates
+            # Use BilingualPairBuilder to build pairs (simplified approach)
+            results = self.pair_builder.build_pairs(quotes, prefer_bilingual)
             
-            for quote in quotes:
-                # Skip if we've already seen this quote ID
-                if quote.id in seen_quote_ids:
-                    continue
-                
-                # Build pair dictionary - EN always left, RU always right
-                pair_dict = {
-                    "english": None,
-                    "russian": None,
-                    "is_translated": False,
-                    "translation_source": None
-                }
-                
-                # Get author name for matching
-                author_name = None
-                if quote.author:
-                    author_name = quote.author.name
-                
-                if quote.language == 'en':
-                    # English quote goes on the left
-                    pair_dict["english"] = self._quote_to_dict(quote)
-                    seen_quote_ids.add(quote.id)
-                    
-                    # Look for actual translation (same quote in Russian)
-                    ru_quote = self._find_translation(quote, 'ru')
-                    
-                    if ru_quote:
-                        # Skip if we've already seen this RU quote
-                        if ru_quote.id in seen_quote_ids:
-                            continue
-                        # Found matching RU quote in database - use it
-                        pair_dict["russian"] = self._quote_to_dict(ru_quote)
-                        seen_quote_ids.add(ru_quote.id)
-                    # If no matching RU quote found, leave russian as None
-                    # Do NOT translate - only show original quotes from database
-                
-                elif quote.language == 'ru':
-                    # Russian quote goes on the right
-                    pair_dict["russian"] = self._quote_to_dict(quote)
-                    seen_quote_ids.add(quote.id)
-                    
-                    # Look for actual translation (same quote in English)
-                    en_quote = self._find_translation(quote, 'en')
-                    
-                    if en_quote:
-                        # Skip if we've already seen this EN quote
-                        if en_quote.id in seen_quote_ids:
-                            continue
-                        # Found matching EN quote in database - use it
-                        pair_dict["english"] = self._quote_to_dict(en_quote)
-                        seen_quote_ids.add(en_quote.id)
-                    # If no matching EN quote found, leave english as None
-                    # Do NOT translate - only show original quotes from database
-                
-                # Create pair key to avoid duplicates
-                en_id = pair_dict["english"]["id"] if pair_dict["english"] else None
-                ru_id = pair_dict["russian"]["id"] if pair_dict["russian"] else None
-                pair_key = (en_id, ru_id)
-                
-                if pair_key in seen_pairs:
-                    continue
-                seen_pairs.add(pair_key)
-                
-                # Only add pairs that have at least one language
-                if pair_dict["english"] or pair_dict["russian"]:
-                    results.append(pair_dict)
-                
-                if len(results) >= limit:
-                    break
+            # Limit results
+            results = results[:limit]
 
             logger.info(
                 f"Search '{query}' returned {len(results)} bilingual pairs"
@@ -152,84 +85,6 @@ class SearchService:
             # Return empty list instead of raising exception
             # This prevents 500 errors when queries fail
             return []
-    
-    def _find_translation(
-        self,
-        quote: Quote,
-        target_language: str
-    ) -> Optional[Quote]:
-        """
-        Find the actual translation of a quote (same quote in different language).
-        
-        Uses bilingual_group_id first, then QuoteTranslation table, 
-        and only as last resort uses author-based matching with strict text similarity.
-        
-        Args:
-            quote: Source quote to find translation for
-            target_language: Target language ('en' or 'ru')
-            
-        Returns:
-            Translated quote or None if not found
-        """
-        # Method 1: Check bilingual_group_id (fastest, most reliable)
-        if quote.bilingual_group_id:
-            translated_quote = (
-                self.db.query(Quote)
-                .filter(
-                    Quote.bilingual_group_id == quote.bilingual_group_id,
-                    Quote.language == target_language,
-                    Quote.id != quote.id
-                )
-                .first()
-            )
-            if translated_quote:
-                return translated_quote
-        
-        # Method 2: Check QuoteTranslation table
-        from models import QuoteTranslation
-        
-        # Check if this quote is the source of a translation
-        translation = (
-            self.db.query(QuoteTranslation)
-            .join(
-                Quote,
-                QuoteTranslation.translated_quote_id == Quote.id
-            )
-            .filter(
-                QuoteTranslation.quote_id == quote.id,
-                Quote.language == target_language
-            )
-            .first()
-        )
-        
-        if translation:
-            return translation.translated_quote
-        
-        # Check if this quote is the target of a translation
-        translation = (
-            self.db.query(QuoteTranslation)
-            .join(
-                Quote,
-                QuoteTranslation.quote_id == Quote.id
-            )
-            .filter(
-                QuoteTranslation.translated_quote_id == quote.id,
-                Quote.language == target_language
-            )
-            .first()
-        )
-        
-        if translation:
-            return translation.quote
-        
-        # Method 3: Fallback to author-based matching with strict text similarity
-        # Only use this if no explicit translation relationship exists
-        return self._find_matching_quote_by_author(
-            quote.author.name if quote.author else None,
-            target_language,
-            quote.source_id if quote.source else None,
-            quote.text
-        )
     
     def _find_matching_quote_by_author(
         self,
@@ -441,11 +296,13 @@ class SearchService:
             "language": quote.language,
             "author": None,
             "source": None,
+            "has_translation": None,
+            "translation_count": None,
             "created_at": quote.created_at.isoformat() if quote.created_at
             else None
         }
         
-        # Add author if exists
+        # Add author if exists (matching AuthorSchema)
         if quote.author:
             result["author"] = {
                 "id": quote.author.id,
@@ -454,7 +311,7 @@ class SearchService:
                 "bio": quote.author.bio
             }
         
-        # Add source if exists
+        # Add source if exists (matching SourceSchema)
         if quote.source:
             result["source"] = {
                 "id": quote.source.id,

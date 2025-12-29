@@ -85,10 +85,13 @@ class PostgreSQLSearchStrategy(SearchStrategy):
         # Search across all language configurations to find matches in both languages
         # Use OR to match in any language configuration and any query variant
         # plainto_tsquery automatically handles special characters and SQL keywords
+        # For multi-word queries, plainto_tsquery treats them as phrases (words in order)
         try:
             # Build OR conditions for each query variant
             search_conditions = []
             for q in queries_to_search:
+                # For multi-word queries, plainto_tsquery will match them as a phrase
+                # (words must appear in order). This is good for phrase searches like "a love is"
                 search_conditions.extend([
                     # English text search config
                     func.to_tsvector('english', Quote.text).match(

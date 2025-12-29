@@ -4,7 +4,8 @@ Quote repository for database operations.
 Handles CRUD operations and search queries for quotes.
 """
 
-from typing import List, Optional
+import re
+from typing import List, Optional, Set
 from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session, aliased
 
@@ -48,30 +49,43 @@ class QuoteRepository:
             # Normalize text for comparison (strip, lowercase)
             normalized_text = text.strip().lower()
             
-            # Check for existing quote with same text, author, and language
-            # Get all quotes with same author and language, then compare in Python
-            # This is more reliable across different database backends
-            candidates = (
-                self.db.query(Quote)
-                .filter(
-                    Quote.author_id == author_id,
-                    Quote.language == language
-                )
-                .all()
-            )
+            # Check for duplicate quotes based on text similarity only
+            # (not author - quotes can have same text but different authors)
+            # Get all quotes, then compare text similarity
+            # Also check for similarity (more than half of the same words)
+            candidates = self.db.query(Quote).all()
             
-            existing = None
+            # Pre-tokenize incoming quote
+            incoming_tokens = self._tokenize_text(normalized_text)
+            incoming_token_count = len(incoming_tokens)
+            
+            similar_candidate = None
             for candidate in candidates:
-                if candidate.text.strip().lower() == normalized_text:
-                    existing = candidate
+                candidate_text = candidate.text.strip().lower()
+                
+                # Exact match
+                if candidate_text == normalized_text:
+                    similar_candidate = candidate
+                    break
+                
+                # Similarity check: more than half the same words
+                if incoming_token_count == 0:
+                    continue
+                
+                candidate_tokens = self._tokenize_text(candidate_text)
+                overlap = len(incoming_tokens & candidate_tokens)
+                
+                if overlap > incoming_token_count / 2:
+                    similar_candidate = candidate
                     break
             
-            if existing:
+            if similar_candidate:
                 logger.debug(
-                    f"Duplicate quote found (ID: {existing.id}), "
-                    f"returning existing quote"
+                    "Duplicate/similar quote found (ID: %s), "
+                    "rejecting new quote",
+                    getattr(similar_candidate, "id", None)
                 )
-                return existing
+                return similar_candidate
             
             # Create new quote
             quote = Quote(
@@ -89,6 +103,20 @@ class QuoteRepository:
             self.db.rollback()
             logger.error(f"Failed to create quote: {e}")
             raise
+
+    @staticmethod
+    def _tokenize_text(text: str) -> Set[str]:
+        """
+        Tokenize text into a set of lowercase words.
+        
+        Args:
+            text: Input text
+        
+        Returns:
+            Set of unique lowercase words.
+        """
+        tokens = re.findall(r"\b\w+\b", text.lower())
+        return set(tokens)
 
     def get_by_id(self, quote_id: int) -> Optional[Quote]:
         """
@@ -173,6 +201,30 @@ class QuoteRepository:
         except Exception as e:
             logger.error(f"Failed to get translations for quote {quote_id}: {e}")
             raise
+
+    def get_quotes_by_group_id(
+        self,
+        group_id: int
+    ) -> List[Quote]:
+        """
+        Get all quotes in a bilingual group.
+        
+        Args:
+            group_id: Bilingual group ID
+            
+        Returns:
+            List of quotes in the group
+        """
+        try:
+            return (
+                self.db.query(Quote)
+                .filter(Quote.bilingual_group_id == group_id)
+                .order_by(Quote.language)
+                .all()
+            )
+        except Exception as e:
+            logger.error(f"Failed to get quotes by group ID: {e}")
+            return []
 
     def get_bilingual_pairs(
         self,

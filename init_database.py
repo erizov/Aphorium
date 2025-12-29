@@ -93,6 +93,34 @@ def main() -> None:
         # Create tables
         init_db()
 
+        # Add bilingual_group_id column if it doesn't exist (migration helper)
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(engine)
+            columns = [col['name'] for col in inspector.get_columns('quotes')]
+            
+            if 'bilingual_group_id' not in columns:
+                logger.info("Adding bilingual_group_id column to quotes table...")
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE quotes ADD COLUMN bilingual_group_id INTEGER"
+                    ))
+                    conn.execute(text(
+                        "CREATE INDEX IF NOT EXISTS idx_quotes_bilingual_group "
+                        "ON quotes(bilingual_group_id)"
+                    ))
+                    conn.execute(text(
+                        "CREATE INDEX IF NOT EXISTS idx_quotes_group_language "
+                        "ON quotes(bilingual_group_id, language)"
+                    ))
+                    conn.commit()
+                logger.info("✅ Added bilingual_group_id column and indexes")
+        except Exception as e:
+            logger.warning(
+                f"Could not add bilingual_group_id column: {e}. "
+                "This is OK if using Alembic migrations or column already exists."
+            )
+
         # Create search indexes (PostgreSQL specific)
         # This will fail gracefully on SQLite (used in tests)
         try:

@@ -6,8 +6,39 @@ Sets up structured logging with file and console handlers.
 
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Optional
+
+
+class UnicodeStreamHandler(logging.StreamHandler):
+    """
+    Stream handler that properly handles Unicode characters.
+    
+    Ensures UTF-8 encoding for console output on Windows.
+    """
+    
+    def __init__(self, stream=None):
+        super().__init__(stream)
+        # Set UTF-8 encoding for the stream if possible
+        if hasattr(stream, 'reconfigure'):
+            try:
+                stream.reconfigure(encoding='utf-8', errors='replace')
+            except (AttributeError, ValueError):
+                pass
+    
+    def emit(self, record):
+        """
+        Emit a record, ensuring Unicode is properly encoded.
+        """
+        try:
+            msg = self.format(record)
+            stream = self.stream
+            # Write Unicode string directly (Python 3 handles this)
+            stream.write(msg + self.terminator)
+            self.flush()
+        except Exception:
+            self.handleError(record)
 
 
 def setup_logging(
@@ -24,6 +55,17 @@ def setup_logging(
     Returns:
         Configured logger instance
     """
+    # Set UTF-8 encoding for stdout/stderr on Windows
+    if sys.platform == 'win32':
+        try:
+            # Try to set console encoding to UTF-8
+            if hasattr(sys.stdout, 'reconfigure'):
+                sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            if hasattr(sys.stderr, 'reconfigure'):
+                sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError):
+            pass
+    
     # Create logs directory if log file is specified
     if log_file:
         log_path = Path(log_file)
@@ -36,8 +78,8 @@ def setup_logging(
     # Remove existing handlers
     logger.handlers.clear()
 
-    # Console handler
-    console_handler = logging.StreamHandler()
+    # Console handler with Unicode support
+    console_handler = UnicodeStreamHandler(sys.stdout)
     console_handler.setLevel(getattr(logging, log_level.upper()))
     console_format = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

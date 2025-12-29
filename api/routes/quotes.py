@@ -12,6 +12,7 @@ from services.quote_service import QuoteService
 from api.models.schemas import (
     QuoteSchema, QuoteWithTranslationsSchema, BilingualPairSchema
 )
+from utils.error_handling import QuoteNotFoundError
 from logger_config import logger
 
 router = APIRouter()
@@ -79,9 +80,99 @@ def search_quotes(
         raise
     except Exception as e:
         logger.error(f"Search endpoint error: {e}", exc_info=True)
-        # Return empty list instead of 500 error
-        # This is more user-friendly for edge cases
+        # Return empty list instead of 500 error for user-friendliness
         return []
+
+
+@router.get("/random", response_model=BilingualPairSchema)
+def get_random_quote(
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Get a random quote (preferably bilingual).
+
+    Args:
+        db: Database session
+
+    Returns:
+        Random bilingual quote pair
+    """
+    try:
+        from sqlalchemy import func
+        from models import Quote
+        from database import engine
+        
+        # Check database type for random function
+        is_sqlite = 'sqlite' in str(engine.url).lower()
+        
+        # For SQLite, use different approach
+        if is_sqlite:
+            # SQLite doesn't support func.random() in ORDER BY, use Python random
+            import random
+            bilingual_quotes = (
+                db.query(Quote)
+                .filter(Quote.bilingual_group_id.isnot(None))
+                .all()
+            )
+            if bilingual_quotes:
+                bilingual_quote = random.choice(bilingual_quotes)
+            else:
+                bilingual_quote = None
+        else:
+            # PostgreSQL: use func.random()
+            bilingual_quote = (
+                db.query(Quote)
+                .filter(Quote.bilingual_group_id.isnot(None))
+                .order_by(func.random())
+                .first()
+            )
+        
+        if bilingual_quote:
+            # Build pair from bilingual group
+            from services.bilingual_pair_builder import BilingualPairBuilder
+            pair_builder = BilingualPairBuilder(db)
+            pair = pair_builder._build_pair_from_group(bilingual_quote.bilingual_group_id)
+            if pair:
+                return pair
+        
+        # Fallback: get any random quote
+        if is_sqlite:
+            import random
+            all_quotes = db.query(Quote).all()
+            if not all_quotes:
+                raise HTTPException(status_code=404, detail="No quotes found in database")
+            random_quote = random.choice(all_quotes)
+        else:
+            random_quote = (
+                db.query(Quote)
+                .order_by(func.random())
+                .first()
+            )
+        
+        if not random_quote:
+            raise HTTPException(status_code=404, detail="No quotes found in database")
+        
+        # Build pair for single quote
+        search_service = SearchService(db)
+        pair_dict = {
+            "english": None,
+            "russian": None,
+            "is_translated": False,
+            "translation_source": None
+        }
+        
+        if random_quote.language == 'en':
+            pair_dict["english"] = search_service._quote_to_dict(random_quote)
+        else:
+            pair_dict["russian"] = search_service._quote_to_dict(random_quote)
+        
+        return pair_dict
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get random quote endpoint error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/{quote_id}", response_model=QuoteWithTranslationsSchema)
@@ -104,10 +195,10 @@ def get_quote(
         quote = quote_service.get_quote_with_translations(quote_id)
 
         if not quote:
-            raise HTTPException(status_code=404, detail="Quote not found")
+            raise QuoteNotFoundError(quote_id)
 
         return quote
-    except HTTPException:
+    except (HTTPException, QuoteNotFoundError):
         raise
     except Exception as e:
         logger.error(f"Get quote endpoint error: {e}")
@@ -138,4 +229,3 @@ def get_bilingual_pairs(
     except Exception as e:
         logger.error(f"Get bilingual pairs endpoint error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-

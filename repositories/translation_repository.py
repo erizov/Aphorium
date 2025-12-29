@@ -25,15 +25,19 @@ class TranslationRepository:
         self,
         quote_id: int,
         translated_quote_id: int,
-        confidence: int = 0
+        confidence: int = 0,
+        bidirectional: bool = True
     ) -> QuoteTranslation:
         """
         Create a translation link between two quotes.
+        
+        Optionally creates bidirectional link (RU->EN if EN->RU).
 
         Args:
             quote_id: Source quote ID
             translated_quote_id: Translated quote ID
             confidence: Confidence score (0-100)
+            bidirectional: Create reverse link (default: True)
 
         Returns:
             Created translation object
@@ -62,6 +66,28 @@ class TranslationRepository:
                 confidence=confidence
             )
             self.db.add(translation)
+            
+            # Create bidirectional link if requested
+            if bidirectional:
+                try:
+                    reverse_existing = (
+                        self.db.query(QuoteTranslation)
+                        .filter(
+                            QuoteTranslation.quote_id == translated_quote_id,
+                            QuoteTranslation.translated_quote_id == quote_id
+                        )
+                        .first()
+                    )
+                    if not reverse_existing:
+                        reverse_translation = QuoteTranslation(
+                            quote_id=translated_quote_id,
+                            translated_quote_id=quote_id,
+                            confidence=confidence
+                        )
+                        self.db.add(reverse_translation)
+                except Exception as e:
+                    logger.debug(f"Could not create reverse link: {e}")
+            
             self.db.commit()
             self.db.refresh(translation)
             logger.debug(

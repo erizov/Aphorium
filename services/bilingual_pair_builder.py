@@ -124,7 +124,7 @@ class BilingualPairBuilder:
             pair = {
                 "english": None,
                 "russian": None,
-                "is_translated": True,
+                "is_translated": False,  # From database, not generated
                 "translation_source": "database_group"
             }
             
@@ -199,26 +199,42 @@ class BilingualPairBuilder:
 
     def _quote_to_dict(self, quote: Quote) -> Dict:
         """
-        Convert Quote object to dictionary.
+        Convert Quote object to dictionary matching QuoteSchema.
         
         Args:
             quote: Quote object
             
         Returns:
-            Quote dictionary
+            Quote dictionary compatible with QuoteSchema
         """
-        return {
+        result = {
             "id": quote.id,
             "text": quote.text,
             "language": quote.language,
-            "author": {
-                "id": quote.author.id if quote.author else None,
-                "name": quote.author.name if quote.author else None
-            } if quote.author else None,
-            "source": {
-                "id": quote.source.id if quote.source else None,
-                "title": quote.source.title if quote.source else None
-            } if quote.source else None,
+            "author": None,
+            "source": None,
+            "has_translation": None,
+            "translation_count": None,
             "created_at": quote.created_at.isoformat() if quote.created_at else None
         }
+        
+        # Add author if exists (matching AuthorSchema)
+        if quote.author:
+            result["author"] = {
+                "id": quote.author.id,
+                "name": quote.author.name,
+                "language": quote.author.language,
+                "bio": quote.author.bio
+            }
+        
+        # Add source if exists (matching SourceSchema)
+        if quote.source:
+            result["source"] = {
+                "id": quote.source.id,
+                "title": quote.source.title,
+                "language": quote.source.language,
+                "source_type": quote.source.source_type
+            }
+        
+        return result
 

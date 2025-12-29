@@ -160,6 +160,9 @@ REFERENCE_PATTERNS = [
     r'^[А-ЯЁ][^.!?]{0,80},\s*Глава\s+\d+\s*$',
     # Short entries that are just titles with dates
     r'^[A-ZА-ЯЁ][^.!?]{0,80}\s*\([^)]*\d{4}[^)]*\)\s*$',  # Title (Date) - no sentence ending
+    
+    # Author year ranges: (1828—1910), (1828-1910), (1828–1910)
+    r'\(\d{4}[\s]*[—–-][\s]*\d{4}\)',  # Matches (1828—1910), (1828-1910), (1828–1910), etc.
 ]
 
 # Patterns that indicate actual quotes (keep these)
@@ -239,10 +242,17 @@ def is_reference(text: str) -> bool:
         r'\b(?:Издательство|Издатель):?\s*[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)*\b',
         r'\b(?:Издательство|Издатель)\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)*\b',
         
-        # Dates in parentheses
+        # Dates in parentheses - comprehensive patterns
+        # English dates: (May 7, 2007), (May 7 2007), (7 May 2007), (May 2007)
+        r'\([^)]*(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[^)]*\d{4}[^)]*\)',
         r'\(\d{1,2}\s+\w+\s+\d{4}\)',  # English: (20 December 1943)
+        # Russian dates: (7 мая 2007), (7 мая 2007 г.), (май 2007)
+        r'\([^)]*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв|фев|мар|апр|май|июн|июл|авг|сен|окт|ноя|дек)[^)]*\d{4}[^)]*\)',
         r'\(\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}\)',  # Russian: (20 декабря 1943)
         r'\(\d{4}\)',  # Year: (1943)
+        
+        # Author year ranges: (1828—1910), (1828-1910), (1828–1910)
+        r'\(\d{4}[\s]*[—–-][\s]*\d{4}\)',  # Matches (1828—1910), (1828-1910), (1828–1910), etc.
         
         # Reference numbers
         r'\[\d+\]',  # [1], [2]
