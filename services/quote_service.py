@@ -48,7 +48,13 @@ class QuoteService:
                 "language": quote.language,
                 "author": {
                     "id": quote.author.id,
-                    "name": quote.author.name
+                    "name": (
+                        quote.author.name_en if quote.language == 'en' 
+                        else quote.author.name_ru
+                    ) if quote.author else None,
+                    "name_en": quote.author.name_en if quote.author else None,
+                    "name_ru": quote.author.name_ru if quote.author else None,
+                    "bio": quote.author.bio if quote.author else None
                 } if quote.author else None,
                 "source": {
                     "id": quote.source.id,
@@ -61,7 +67,13 @@ class QuoteService:
                         "language": t.language,
                         "author": {
                             "id": t.author.id,
-                            "name": t.author.name
+                            "name": (
+                                t.author.name_en if t.language == 'en' 
+                                else t.author.name_ru
+                            ) if t.author else None,
+                            "name_en": t.author.name_en if t.author else None,
+                            "name_ru": t.author.name_ru if t.author else None,
+                            "bio": t.author.bio if t.author else None
                         } if t.author else None
                     }
                     for t in translations

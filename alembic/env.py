@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_root))
 
 from database import Base
 from config import settings
-from models import Author, Source, Quote, QuoteTranslation, SourceMetadata
+from models import Author, Source, Quote, QuoteTranslation
 
 # this is the Alembic Config object
 config = context.config

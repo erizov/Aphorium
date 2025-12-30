@@ -11,23 +11,34 @@ export const exportToCSV = (results, filename = 'quotes_export.csv') => {
   }
 
   // Prepare CSV data - two columns: EN quote + author, RU quote + author
+  // Each quote is already linked to the correct language author (EN quotes -> EN authors, RU quotes -> RU authors)
   const headers = ['English Quote', 'Russian Quote']
   const rows = results.map(pair => {
     // Column 1: English quote text + dot + Author name in English
+    // Use name_en for English quotes
     let enColumn = ''
     if (pair.english?.text) {
       enColumn = pair.english.text
-      if (pair.english?.author?.name) {
-        enColumn += '. ' + pair.english.author.name
+      if (pair.english?.author) {
+        // Use name (which should be name_en for EN quotes) or fallback to name_en
+        const authorName = pair.english.author.name || pair.english.author.name_en || ''
+        if (authorName) {
+          enColumn += '. ' + authorName
+        }
       }
     }
     
     // Column 2: Russian quote text + dot + Author name in Russian
+    // Use name_ru for Russian quotes
     let ruColumn = ''
     if (pair.russian?.text) {
       ruColumn = pair.russian.text
-      if (pair.russian?.author?.name) {
-        ruColumn += '. ' + pair.russian.author.name
+      if (pair.russian?.author) {
+        // Use name (which should be name_ru for RU quotes) or fallback to name_ru
+        const authorName = pair.russian.author.name || pair.russian.author.name_ru || ''
+        if (authorName) {
+          ruColumn += '. ' + authorName
+        }
       }
     }
     

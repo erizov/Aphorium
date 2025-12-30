@@ -10,7 +10,7 @@ from logger_config import logger
 
 # Import all models to ensure they're registered with Base.metadata
 from models import (  # noqa: F401
-    Author, Source, Quote, QuoteTranslation, WordTranslation, SourceMetadata
+    Author, Source, Quote, QuoteTranslation, WordTranslation
 )
 
 

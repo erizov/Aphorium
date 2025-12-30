@@ -446,7 +446,7 @@ function App() {
                             </Typography>
                             {pair.english.author && (
                               <Typography variant="caption" color="text.secondary">
-                                — {pair.english.author.name}
+                                — {pair.english.author.name || pair.english.author.name_en || ''}
                               </Typography>
                             )}
                           </Box>
@@ -504,7 +504,7 @@ function App() {
                             </Typography>
                             {pair.russian.author && (
                               <Typography variant="caption" color="text.secondary">
-                                — {pair.russian.author.name}
+                                — {pair.russian.author.name || pair.russian.author.name_ru || ''}
                               </Typography>
                             )}
                           </Box>
@@ -547,7 +547,7 @@ function App() {
                               </Typography>
                               {pair.english.author && (
                                 <Typography variant="caption" color="text.secondary">
-                                  — {pair.english.author.name}
+                                  — {pair.english.author.name_en || pair.english.author.name}
                                 </Typography>
                               )}
                             </>
@@ -587,7 +587,7 @@ function App() {
                               </Typography>
                               {pair.russian.author && (
                                 <Typography variant="caption" color="text.secondary">
-                                  — {pair.russian.author.name}
+                                  — {pair.russian.author.name_ru || pair.russian.author.name}
                                 </Typography>
                               )}
                             </>

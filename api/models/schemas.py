@@ -10,8 +10,9 @@ class AuthorSchema(BaseModel):
     """Author schema."""
 
     id: int
-    name: str
-    language: str
+    name: str  # Language-specific name (name_en for EN quotes, name_ru for RU quotes)
+    name_en: Optional[str] = None  # English name version
+    name_ru: Optional[str] = None  # Russian name version
     bio: Optional[str] = None
 
     class Config:

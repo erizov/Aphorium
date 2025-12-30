@@ -219,11 +219,18 @@ class BilingualPairBuilder:
         }
         
         # Add author if exists (matching AuthorSchema)
+        # Use name_en for EN quotes, name_ru for RU quotes
         if quote.author:
+            author_name = (
+                quote.author.name_en if quote.language == 'en' 
+                else quote.author.name_ru
+            ) if quote.author else None
+            
             result["author"] = {
                 "id": quote.author.id,
-                "name": quote.author.name,
-                "language": quote.author.language,
+                "name": author_name,  # Language-specific name for display
+                "name_en": quote.author.name_en,
+                "name_ru": quote.author.name_ru,
                 "bio": quote.author.bio
             }
         

@@ -44,8 +44,8 @@ class Author(Base):
     __tablename__ = "authors"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False, index=True)
-    language = Column(String(10), nullable=False)  # 'en' or 'ru'
+    name_en = Column(String(255), nullable=True)  # English name version
+    name_ru = Column(String(255), nullable=True)  # Russian name version
     bio = Column(Text, nullable=True)
     wikiquote_url = Column(String(500), nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
@@ -55,8 +55,8 @@ class Author(Base):
     sources = relationship("Source", back_populates="author")
 
     def __repr__(self) -> str:
-        return f"<Author(id={self.id}, name='{self.name}', " \
-               f"language='{self.language}')>"
+        return f"<Author(id={self.id}, name_en='{self.name_en}', " \
+               f"name_ru='{self.name_ru}')>"
 
 
 class Source(Base):
@@ -181,24 +181,4 @@ class WordTranslation(Base):
     def __repr__(self) -> str:
         return f"<WordTranslation(en='{self.word_en}', ru='{self.word_ru}')>"
 
-
-class SourceMetadata(Base):
-    """Metadata for scraped sources."""
-
-    __tablename__ = "sources_metadata"
-
-    id = Column(Integer, primary_key=True, index=True)
-    source_type = Column(String(50), nullable=False)  # 'wikiquote_ru', etc.
-    page_url = Column(String(500), nullable=False)
-    last_scraped = Column(TIMESTAMP, nullable=True)
-    status = Column(String(50), nullable=True)  # 'pending', 'completed', etc.
-
-    # Constraints
-    __table_args__ = (
-        UniqueConstraint("source_type", "page_url"),
-    )
-
-    def __repr__(self) -> str:
-        return f"<SourceMetadata(source_type='{self.source_type}', " \
-               f"page_url='{self.page_url}', status='{self.status}')>"
 
