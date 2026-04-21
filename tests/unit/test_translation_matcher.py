@@ -21,7 +21,7 @@ def test_match_quotes_by_author(db_session: Session):
     quote_repo = QuoteRepository(db_session)
 
     # Create author
-    author = author_repo.create(name="Test Author", language="en")
+    author = author_repo.create(name_en="Test Author")
 
     # Create source
     source = source_repo.create(
@@ -68,7 +68,7 @@ def test_matcher_handles_no_matches(db_session: Session):
     author_repo = AuthorRepository(db_session)
 
     # Create author with quotes in only one language
-    author = author_repo.create(name="Single Language Author", language="en")
+    author = author_repo.create(name_en="Single Language Author")
 
     matcher = TranslationMatcher(db_session)
     matches = matcher.match_quotes_by_author(author.id)

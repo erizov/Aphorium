@@ -6,6 +6,8 @@ Uses Pydantic Settings for validation and type safety.
 """
 
 from typing import List, Optional
+
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -42,6 +44,28 @@ class Settings(BaseSettings):
     translation_provider: str = "google"  # google, deepl, microsoft, mymemory, pons, linguee
     translation_api_key: Optional[str] = None
     translation_delay: float = 0.5
+
+    # Local LLM (OpenAI-compatible, e.g. Ollama)
+    local_llm_base_url: str = "http://127.0.0.1:11434/v1"
+    local_llm_model: str = "llama3.2"
+    local_llm_api_key: Optional[str] = "ollama"
+    llm_timeout_seconds: float = 120.0
+    llm_max_output_tokens: int = 512
+    llm_cloud_fallback_enabled: bool = False
+    openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4o-mini"
+
+    # News ingestion
+    news_api_key: Optional[str] = None
+    news_api_country: str = "us"
+    rss_feeds: List[str] = Field(default_factory=list)
+    news_scrape_allowed_hosts: List[str] = Field(default_factory=list)
+    breaking_news_keywords: List[str] = Field(
+        default_factory=lambda: ["breaking", "alert", "urgent"]
+    )
+    news_fetch_interval_seconds: int = 300
+    news_periodic_fetch_enabled: bool = False
+    websocket_enabled: bool = True
 
     class Config:
         """Pydantic config."""

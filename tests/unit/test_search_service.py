@@ -21,7 +21,7 @@ def test_search_service_prioritizes_bilingual(db_session: Session):
     translation_repo = TranslationRepository(db_session)
 
     # Create author
-    author = author_repo.create(name="Test Author", language="en")
+    author = author_repo.create(name_en="Test Author")
 
     # Create quotes
     quote_with_translation = quote_repo.create(
@@ -57,20 +57,20 @@ def test_search_service_prioritizes_bilingual(db_session: Session):
         limit=10
     )
 
-    # Find quotes in results
+    # Search returns bilingual pair dicts (english / russian sides).
     with_trans = next(
-        (r for r in results if r["id"] == quote_with_translation.id),
-        None
+        (
+            r
+            for r in results
+            if r.get("english") and r["english"].get("id")
+            == quote_with_translation.id
+        ),
+        None,
     )
-    without_trans = next(
-        (r for r in results if r["id"] == quote_with_translation.id),
-        None
-    )
-
-    # Quote with translation should have has_translation flag
     if with_trans:
-        assert with_trans["has_translation"] is True
-        assert with_trans["translation_count"] > 0
+        en = with_trans["english"]
+        assert en is not None
+        assert en.get("id") == quote_with_translation.id
 
 
 def test_search_service_handles_empty_query(db_session: Session):
@@ -87,7 +87,7 @@ def test_quote_to_dict_conversion(db_session: Session):
     author_repo = AuthorRepository(db_session)
     quote_repo = QuoteRepository(db_session)
 
-    author = author_repo.create(name="Test Author", language="en")
+    author = author_repo.create(name_en="Test Author")
     quote = quote_repo.create(
         text="Test quote text.",
         author_id=author.id,
@@ -98,10 +98,12 @@ def test_quote_to_dict_conversion(db_session: Session):
     results = search_service.search(query="test", limit=1)
 
     if results:
-        quote_dict = results[0]
-        assert "id" in quote_dict
-        assert "text" in quote_dict
-        assert "language" in quote_dict
-        assert quote_dict["author"] is not None
-        assert quote_dict["author"]["name"] == "Test Author"
+        pair = results[0]
+        assert "english" in pair
+        en = pair["english"]
+        assert en.get("id") == quote.id
+        assert "text" in en
+        assert en.get("language") == "en"
+        assert en.get("author") is not None
+        assert en["author"].get("name_en") == "Test Author"
 

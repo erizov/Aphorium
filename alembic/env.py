@@ -16,7 +16,17 @@ sys.path.insert(0, str(project_root))
 
 from database import Base
 from config import settings
-from models import Author, Source, Quote, QuoteTranslation
+from models import (
+    Author,
+    Source,
+    Quote,
+    QuoteTranslation,
+    WordTranslation,
+    NewsArticle,
+    NewsAphorism,
+    AphorismNewsPair,
+    NewsNotification,
+)
 
 # this is the Alembic Config object
 config = context.config

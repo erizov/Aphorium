@@ -15,8 +15,9 @@ import {
   Grid,
   IconButton,
   ThemeProvider,
-  createTheme,
   CssBaseline,
+  Tabs,
+  Tab,
   Tooltip,
   Menu,
   MenuItem,
@@ -33,54 +34,16 @@ import FileDownloadIcon from '@mui/icons-material/FileDownload'
 import HistoryIcon from '@mui/icons-material/History'
 import CasinoIcon from '@mui/icons-material/Casino'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import ArticleIcon from '@mui/icons-material/Article'
 import axios from 'axios'
 import TextToSpeechButton from './components/TextToSpeechButton'
+import NewsHub from './components/NewsHub'
+import NewsNotifications from './components/NewsNotifications'
+import { createAppleLightTheme, createAppleDarkTheme } from './theme/appleMuiTheme'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { exportToCSV, copyToClipboard } from './utils/exportUtils'
 
 const API_BASE = '/api'
-
-// Create light and dark themes
-const lightTheme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#667eea',
-    },
-    secondary: {
-      main: '#764ba2',
-    },
-    background: {
-      default: '#f5f5f5',
-    },
-  },
-  typography: {
-    h4: {
-      fontWeight: 600,
-    },
-  },
-})
-
-const darkTheme = createTheme({
-  palette: {
-    mode: 'dark',
-    primary: {
-      main: '#667eea',
-    },
-    secondary: {
-      main: '#764ba2',
-    },
-    background: {
-      default: '#121212',
-      paper: '#1e1e1e',
-    },
-  },
-  typography: {
-    h4: {
-      fontWeight: 600,
-    },
-  },
-})
 
 function App() {
   const [query, setQuery] = useState('')
@@ -92,8 +55,9 @@ function App() {
   const [searchHistory, setSearchHistory] = useLocalStorage('searchHistory', [])
   const [snackbar, setSnackbar] = useState({ open: false, message: '' })
   const [historyMenuAnchor, setHistoryMenuAnchor] = useState(null)
+  const [mainView, setMainView] = useState('quotes')
 
-  const theme = darkMode ? darkTheme : lightTheme
+  const theme = darkMode ? createAppleDarkTheme() : createAppleLightTheme()
 
   // Load search history on mount
   useEffect(() => {
@@ -215,16 +179,35 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ flexGrow: 1, minHeight: '100vh', bgcolor: 'background.default' }}>
-        <AppBar position="static" elevation={0} sx={{ bgcolor: 'primary.main' }}>
+        <AppBar
+          position="static"
+          elevation={0}
+          sx={{
+            bgcolor: 'background.paper',
+            color: 'text.primary',
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
           <Toolbar>
-            <MenuBookIcon sx={{ mr: 2 }} />
-            <Typography variant="h5" component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
+            <MenuBookIcon sx={{ mr: 2, color: 'primary.main' }} />
+            <Typography variant="h5" component="div" sx={{ fontWeight: 600, mr: 2 }}>
               Aphorium
             </Typography>
+            <Tabs
+              value={mainView}
+              onChange={(_, v) => setMainView(v)}
+              textColor="primary"
+              indicatorColor="primary"
+              sx={{ flexGrow: 1 }}
+            >
+              <Tab label="Quotes" value="quotes" />
+              <Tab icon={<ArticleIcon />} iconPosition="start" label="News" value="news" />
+            </Tabs>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <Tooltip title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
                 <IconButton
-                  color="inherit"
+                  color="default"
                   onClick={() => setDarkMode(!darkMode)}
                   aria-label="Toggle dark mode"
                 >
@@ -235,7 +218,7 @@ function App() {
                 <>
                   <Tooltip title="Search history">
                     <IconButton
-                      color="inherit"
+                      color="default"
                       onClick={handleHistoryClick}
                       aria-label="Search history"
                     >
@@ -280,6 +263,11 @@ function App() {
         </AppBar>
 
         <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          {mainView === 'news' && (
+            <NewsHub uiLang="en" showSnackbar={showSnackbar} />
+          )}
+          {mainView === 'quotes' && (
+          <>
           <Box
             sx={{
               textAlign: 'center',
@@ -390,7 +378,10 @@ function App() {
                 >
                   <Card
                     sx={{
-                      borderLeft: isBilingual ? '4px solid #27ae60' : '4px solid #667eea',
+                      borderLeft: (theme) =>
+                        isBilingual
+                          ? '4px solid #27ae60'
+                          : `4px solid ${theme.palette.primary.main}`,
                       bgcolor: isBilingual ? 'rgba(39, 174, 96, 0.05)' : 'background.paper',
                       transition: 'transform 0.2s, box-shadow 0.2s',
                       '&:hover': {
@@ -631,7 +622,11 @@ function App() {
               </Button>
             </Box>
           )}
+          </>
+          )}
         </Container>
+
+        <NewsNotifications onEvent={(msg) => showSnackbar(msg)} />
 
         <Snackbar
           open={snackbar.open}

@@ -5,6 +5,7 @@ Pytest configuration and fixtures.
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
 from models import Quote, Author, Source
@@ -23,7 +24,11 @@ def db_session():
     Yields:
         Database session
     """
-    engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+    engine = create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(bind=engine)
     TestingSessionLocal = sessionmaker(
         autocommit=False, autoflush=False, bind=engine
@@ -41,9 +46,9 @@ def db_session():
 def sample_author(db_session):
     """Create a sample author for testing."""
     author = Author(
-        name="Test Author",
-        language="en",
-        bio="Test biography"
+        name_en="Test Author",
+        name_ru=None,
+        bio="Test biography",
     )
     db_session.add(author)
     db_session.commit()

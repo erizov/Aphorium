@@ -108,6 +108,10 @@ class Quote(Base):
         foreign_keys="QuoteTranslation.translated_quote_id",
         back_populates="translated_quote"
     )
+    aphorism_news_pairs = relationship(
+        "AphorismNewsPair",
+        back_populates="quote",
+    )
 
     # Indexes
     __table_args__ = (
@@ -180,5 +184,104 @@ class WordTranslation(Base):
     
     def __repr__(self) -> str:
         return f"<WordTranslation(en='{self.word_en}', ru='{self.word_ru}')>"
+
+
+class NewsArticle(Base):
+    """Ingested news article."""
+
+    __tablename__ = "news_articles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(500), nullable=False)
+    content = Column(Text, nullable=False)
+    url = Column(String(1000), nullable=False, unique=True)
+    source = Column(String(100), nullable=False, default="manual")
+    published_at = Column(TIMESTAMP, nullable=True)
+    category = Column(String(80), nullable=True)
+    language = Column(String(10), nullable=False, default="en")
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    processed_at = Column(TIMESTAMP, nullable=True)
+
+    aphorisms = relationship(
+        "NewsAphorism",
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+    pairs = relationship(
+        "AphorismNewsPair",
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("idx_news_articles_published_at", "published_at"),
+        Index("idx_news_articles_category", "category"),
+    )
+
+    def __repr__(self) -> str:
+        t = str(self.title)
+        preview = t[:40] + ("..." if len(t) > 40 else "")
+        return f"<NewsArticle(id={self.id}, title='{preview}')>"
+
+
+class NewsAphorism(Base):
+    """LLM-generated aphoristic line derived from news."""
+
+    __tablename__ = "news_aphorisms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    news_article_id = Column(
+        Integer, ForeignKey("news_articles.id"), nullable=False, index=True
+    )
+    aphorism_text = Column(Text, nullable=False)
+    language = Column(String(10), nullable=False, default="en")
+    generation_method = Column(String(50), nullable=False)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
+    article = relationship("NewsArticle", back_populates="aphorisms")
+    notifications = relationship(
+        "NewsNotification",
+        back_populates="aphorism",
+        cascade="all, delete-orphan",
+    )
+
+
+class AphorismNewsPair(Base):
+    """Link between a historical quote and a news article."""
+
+    __tablename__ = "aphorism_news_pairs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quote_id = Column(Integer, ForeignKey("quotes.id"), nullable=False)
+    news_article_id = Column(
+        Integer, ForeignKey("news_articles.id"), nullable=False, index=True
+    )
+    relevance_score = Column(Integer, nullable=False, default=0)
+    match_reason = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
+    quote = relationship("Quote", back_populates="aphorism_news_pairs")
+    article = relationship("NewsArticle", back_populates="pairs")
+
+    __table_args__ = (
+        UniqueConstraint("quote_id", "news_article_id"),
+        Index("idx_aphorism_news_pairs_article", "news_article_id"),
+    )
+
+
+class NewsNotification(Base):
+    """Record of a pushed news aphorism notification."""
+
+    __tablename__ = "news_notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    news_aphorism_id = Column(
+        Integer, ForeignKey("news_aphorisms.id"), nullable=False, index=True
+    )
+    delivery_method = Column(String(50), nullable=False)
+    delivered_at = Column(TIMESTAMP, default=datetime.utcnow)
+    recipient_id = Column(String(128), nullable=True)
+
+    aphorism = relationship("NewsAphorism", back_populates="notifications")
 
 
