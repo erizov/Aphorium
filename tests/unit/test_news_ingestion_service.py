@@ -10,8 +10,17 @@ from models import NewsArticle
 from repositories.news_repository import NewsRepository
 from services.news_ingestion_service import (
     NewsIngestionService,
+    _sort_rows_newest_first,
     identify_breaking_news,
 )
+
+
+def test_sort_rows_newest_first_orders_and_trailing_undated():
+    old = {"published_at": datetime(2020, 1, 1), "id": "a"}
+    new = {"published_at": datetime(2024, 6, 1), "id": "b"}
+    nodate = {"published_at": None, "id": "c"}
+    got = _sort_rows_newest_first([old, nodate, new])
+    assert [r["id"] for r in got] == ["b", "a", "c"]
 
 
 def test_identify_breaking_news_respects_keywords():

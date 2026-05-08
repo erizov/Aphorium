@@ -19,6 +19,19 @@ from logger_config import logger
 _NEWS_API_URL = "https://newsapi.org/v2/top-headlines"
 _REQUEST_TIMEOUT = 20
 
+# Parse enough RSS items to sort by date; feeds are not always newest-first.
+_RSS_ENTRY_SCAN_CAP = 500
+
+
+def _sort_rows_newest_first(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Stable preference for recent `published_at`; undated rows last."""
+    return sorted(
+        rows,
+        key=lambda r: r.get("published_at") or datetime.min,
+        reverse=True,
+    )
+
+
 PROMINENT_NEWS_FEEDS: List[Dict[str, str]] = [
     {
         "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
@@ -252,10 +265,14 @@ class NewsIngestionService:
     ) -> List[Dict[str, Any]]:
         """
         Parse RSS/Atom feed and return normalized dicts (not yet persisted).
+
+        Entries are sorted newest-first, then truncated to ``max_entries`` so
+        ingestion prefers recent stories even when the feed XML order differs.
         """
         parsed = feedparser.parse(feed_url)
         out: List[Dict[str, Any]] = []
-        for entry in parsed.entries[:max_entries]:
+        scan_n = min(len(parsed.entries), _RSS_ENTRY_SCAN_CAP)
+        for entry in parsed.entries[:scan_n]:
             link = getattr(entry, "link", "") or ""
             title = getattr(entry, "title", "") or "(no title)"
             summary = getattr(entry, "summary", "") or getattr(
@@ -275,7 +292,14 @@ class NewsIngestionService:
                     "language": language,
                 }
             )
-        logger.info("RSS %s parsed %s entries", feed_url, len(out))
+        out = _sort_rows_newest_first(out)
+        out = out[:max_entries]
+        logger.info(
+            "RSS %s parsed %s entries (newest-first cap %s)",
+            feed_url,
+            len(out),
+            max_entries,
+        )
         return out
 
     def ingest_rss_feed(
@@ -471,7 +495,8 @@ class NewsIngestionService:
                     "language": language[:10],
                 }
             )
-        logger.info("NewsAPI returned %s normalized rows", len(out))
+        out = _sort_rows_newest_first(out)
+        logger.info("NewsAPI returned %s normalized rows (newest-first)", len(out))
         return out
 
     def ingest_from_newsapi(
