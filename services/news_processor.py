@@ -66,8 +66,9 @@ def process_news_article(
     except Exception as exc:
         logger.warning("Summary aphorism failed: %s", exc)
         summary_text = (
-            "Aphorism unavailable (connect a local LLM or enable cloud "
-            "fallback)."
+            "Generated aphorism unavailable: configure OPENAI_API_KEY, set "
+            "LLM_PROVIDER=local with a running Ollama/model, then reprocess. "
+            "(Archive quote matching runs separately and may still appear.)"
         )
     aph_repo.create(
         news_article_id=article.id,

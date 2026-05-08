@@ -15,6 +15,7 @@ from api.models.schemas import (
     NewsArticleListItemSchema,
     NewsAphorismBriefSchema,
     PaginatedNewsArticlesSchema,
+    ProminentNewsIngestSchema,
     RelatedQuoteBriefSchema,
     RssIngestSchema,
     SummarizeArticleSchema,
@@ -315,6 +316,26 @@ def ingest_newsapi(
         page_size=body.page_size,
     )
     return {"inserted": inserted}
+
+
+@router.post("/ingest-prominent")
+def ingest_prominent_news(
+    body: ProminentNewsIngestSchema,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    svc = NewsIngestionService(db)
+    countries = [c.strip().lower() for c in body.countries if c.strip()]
+    invalid = sorted(set(c for c in countries if c not in {"ru", "us"}))
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported countries: {', '.join(invalid)}",
+        )
+    return svc.ingest_prominent_recent_news(
+        days=body.days,
+        limit_per_category=body.limit_per_category,
+        countries=countries or ["ru", "us"],
+    )
 
 
 @router.get("/pairs")

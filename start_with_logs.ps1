@@ -4,37 +4,83 @@ cd 'E:\Python\GptEngineer\Aphorium'
 # Activate virtual environment
 & "venv\Scripts\Activate.ps1"
 
+# Best-effort: stop prior Aphorium PIDs and listeners on 8001/3000
+if (Test-Path ".\stop_app.ps1") {
+    & ".\stop_app.ps1"
+}
+
 # Create logs directory
 if (-not (Test-Path "logs")) {
     New-Item -ItemType Directory -Path "logs" -Force | Out-Null
 }
 
 function Get-PidsOnPort([int]$port) {
+    $seen = @{}
+    $addPid = {
+        param([int]$p)
+        if ($p -gt 0) { $seen[$p] = $true }
+    }
+
     try {
-        $rows = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
-            Where-Object { $_.State -eq "Listen" }
-        if ($rows) {
-            return @(
-                $rows |
-                    Select-Object -ExpandProperty OwningProcess -Unique |
-                    Where-Object { $_ -is [int] -and $_ -gt 0 } |
-                    Sort-Object -Unique
-            )
+        $rows = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+        foreach ($r in $rows) {
+            if ($null -eq $r) { continue }
+            $st = [string]$r.State
+            if ($st -eq "Listen") {
+                & $addPid -p ([int]$r.OwningProcess)
+            }
         }
     } catch {
-        # Fallback: parse netstat output (works even when Get-NetTCPConnection is restricted)
-        try {
-            $lines = netstat -ano -p TCP | Select-String -Pattern (":$port\\s+LISTENING\\s+(\\d+)$")
-            $pids = @()
-            foreach ($m in $lines.Matches) {
-                $pids += [int]$m.Groups[1].Value
-            }
-            return @($pids | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
-        } catch {
-            return @()
-        }
+        # Continue to netstat
     }
-    return @()
+
+    # netstat: matches "0.0.0.0:3000 ... LISTENING 12345" and [::]:3000 variants
+    try {
+        $safePort = [regex]::Escape([string]$port)
+        $rx = [regex](':' + $safePort + '\s+.*\s+LISTENING\s+(\d+)\s*$')
+        $netstatOut = netstat -ano 2>$null
+        foreach ($line in $netstatOut) {
+            $m = $rx.Match([string]$line)
+            if ($m.Success) {
+                & $addPid -p ([int]$m.Groups[1].Value)
+            }
+        }
+    } catch {
+        # Ignore
+    }
+
+    return @($seen.Keys | Sort-Object -Unique)
+}
+
+function Stop-PidsOnPort([int]$port, [string]$label) {
+    $portPids = Get-PidsOnPort $port
+    if ($portPids.Count -eq 0) {
+        return $true
+    }
+    Write-Host "  WARNING: $label port $port in use (PID(s): $($portPids -join ', ')), killing..." -ForegroundColor Yellow
+    foreach ($portPid in $portPids) {
+        Stop-Process -Id $portPid -Force -ErrorAction SilentlyContinue
+        # Node keeps listening if parent npm exits first
+        taskkill /F /PID $portPid /T 2>$null | Out-Null
+    }
+    Start-Sleep -Milliseconds 600
+
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline) {
+        $portPids = Get-PidsOnPort $port
+        if ($portPids.Count -eq 0) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 400
+    }
+
+    $portPids = Get-PidsOnPort $port
+    if ($portPids.Count -gt 0) {
+        Write-Host "  ERROR: Port $port still in use (PID(s): $($portPids -join ', '))!" -ForegroundColor Red
+        Write-Host "  Run .\stop_app.ps1 or end that process, then retry." -ForegroundColor Red
+        return $false
+    }
+    return $true
 }
 
 # Log files (stdout/stderr must be different files for Start-Process).
@@ -61,25 +107,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Ensure port 8001 is free (8000 may be used by another app)
-$backendPortPids = Get-PidsOnPort 8001
-if ($backendPortPids.Count -gt 0) {
-    Write-Host "  WARNING: Port 8001 in use (PID(s): $($backendPortPids -join ', ')), killing..." -ForegroundColor Yellow
-    foreach ($portPid in $backendPortPids) {
-        Stop-Process -Id $portPid -Force -ErrorAction SilentlyContinue
-    }
-
-    $deadline = (Get-Date).AddSeconds(8)
-    while ((Get-Date) -lt $deadline) {
-        Start-Sleep -Milliseconds 400
-        $backendPortPids = Get-PidsOnPort 8001
-        if ($backendPortPids.Count -eq 0) { break }
-    }
-
-    if ($backendPortPids.Count -gt 0) {
-        Write-Host "  ERROR: Port 8001 still in use (PID(s): $($backendPortPids -join ', '))!" -ForegroundColor Red
-        Write-Host "  Please manually kill the process(es) and try again" -ForegroundColor Red
-        exit 1
-    }
+if (-not (Stop-PidsOnPort -port 8001 -label "Backend")) {
+    exit 1
 }
 
 $backendProc = Start-Process `
@@ -92,31 +121,15 @@ $backendProc = Start-Process `
     -WorkingDirectory "E:\Python\GptEngineer\Aphorium" `
     -RedirectStandardOutput $backendOutLog `
     -RedirectStandardError $backendErrLog `
+    -WindowStyle Hidden `
     -PassThru
 
 # Start frontend
 Write-Host "Starting frontend dev server..." -ForegroundColor Green
 
-# Final check: make absolutely sure port 3000 is free
-$portPids = Get-PidsOnPort 3000
-if ($portPids.Count -gt 0) {
-    Write-Host "  WARNING: Port 3000 in use (PID(s): $($portPids -join ', ')), killing..." -ForegroundColor Yellow
-    foreach ($portPid in $portPids) {
-        Stop-Process -Id $portPid -Force -ErrorAction SilentlyContinue
-    }
-
-    $deadline = (Get-Date).AddSeconds(8)
-    while ((Get-Date) -lt $deadline) {
-        Start-Sleep -Milliseconds 400
-        $portPids = Get-PidsOnPort 3000
-        if ($portPids.Count -eq 0) { break }
-    }
-
-    if ($portPids.Count -gt 0) {
-        Write-Host "  ERROR: Port 3000 still in use (PID(s): $($portPids -join ', '))!" -ForegroundColor Red
-        Write-Host "  Please manually kill the process(es) and try again" -ForegroundColor Red
-        exit 1
-    }
+# Final check: make sure port 3000 is free before Vite binds (--strictPort)
+if (-not (Stop-PidsOnPort -port 3000 -label "Frontend")) {
+    exit 1
 }
 
 $frontendProc = Start-Process `
@@ -127,6 +140,7 @@ $frontendProc = Start-Process `
     -WorkingDirectory "E:\Python\GptEngineer\Aphorium\frontend" `
     -RedirectStandardOutput $frontendOutLog `
     -RedirectStandardError $frontendErrLog `
+    -WindowStyle Hidden `
     -PassThru
 
 # Save PIDs

@@ -2,7 +2,7 @@
 Normalize and persist news from RSS, NewsAPI, scraping, or manual payloads.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -18,6 +18,149 @@ from logger_config import logger
 
 _NEWS_API_URL = "https://newsapi.org/v2/top-headlines"
 _REQUEST_TIMEOUT = 20
+
+PROMINENT_NEWS_FEEDS: List[Dict[str, str]] = [
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+        "source": "rss:nytimes",
+        "category": "general",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://feeds.npr.org/1001/rss.xml",
+        "source": "rss:npr",
+        "category": "general",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",
+        "source": "rss:nytimes-us",
+        "category": "us",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
+        "source": "rss:nytimes-politics",
+        "category": "politics",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "source": "rss:nytimes-world",
+        "category": "world",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Europe.xml",
+        "source": "rss:nytimes-europe",
+        "category": "europe",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+        "source": "rss:nytimes-business",
+        "category": "business",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+        "source": "rss:nytimes-tech",
+        "category": "technology",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://www.technologyreview.com/feed/",
+        "source": "rss:mit-tech-review",
+        "category": "ai",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
+        "source": "rss:nytimes-science",
+        "category": "science",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Health.xml",
+        "source": "rss:nytimes-health",
+        "category": "health",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Climate.xml",
+        "source": "rss:nytimes-climate",
+        "category": "nature",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Arts.xml",
+        "source": "rss:nytimes-arts",
+        "category": "culture",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml",
+        "source": "rss:nytimes-sports",
+        "category": "sports",
+        "language": "en",
+        "country": "us",
+    },
+    {
+        "url": "https://rssexport.rbc.ru/rbcnews/news/30/full.rss",
+        "source": "rss:rbc",
+        "category": "russia",
+        "language": "ru",
+        "country": "ru",
+    },
+    {
+        "url": "https://www.kommersant.ru/RSS/news.xml",
+        "source": "rss:kommersant",
+        "category": "russia",
+        "language": "ru",
+        "country": "ru",
+    },
+    {
+        "url": "https://lenta.ru/rss/news",
+        "source": "rss:lenta",
+        "category": "russia",
+        "language": "ru",
+        "country": "ru",
+    },
+    {
+        "url": "https://meduza.io/rss/all",
+        "source": "rss:meduza",
+        "category": "russia",
+        "language": "ru",
+        "country": "ru",
+    },
+    {
+        "url": "https://www.kommersant.ru/RSS/section-business.xml",
+        "source": "rss:kommersant-business",
+        "category": "business",
+        "language": "ru",
+        "country": "ru",
+    },
+    {
+        "url": "https://www.kommersant.ru/RSS/section-tech.xml",
+        "source": "rss:kommersant-tech",
+        "category": "technology",
+        "language": "ru",
+        "country": "ru",
+    },
+]
 
 
 def _host_in_allowlist(host: str, allow: List[str]) -> bool:
@@ -67,6 +210,23 @@ class NewsIngestionService:
             NewsArticle.url == url
         ).first()
         if found:
+            changed = False
+            category = article_data.get("category")
+            language = article_data.get("language")
+            source = article_data.get("source")
+            if category and found.category != category:
+                found.category = str(category)[:80]
+                changed = True
+            if language and found.language != language:
+                found.language = str(language)[:10]
+                changed = True
+            if source and found.source != source:
+                found.source = str(source)[:100]
+                changed = True
+            if changed:
+                self.db.add(found)
+                self.db.commit()
+                self.db.refresh(found)
             return found
         pub = article_data.get("published_at")
         if isinstance(pub, str):
@@ -81,13 +241,21 @@ class NewsIngestionService:
             language=str(article_data.get("language", "en"))[:10],
         )
 
-    def fetch_from_rss(self, feed_url: str) -> List[Dict[str, Any]]:
+    def fetch_from_rss(
+        self,
+        feed_url: str,
+        *,
+        category: Optional[str] = None,
+        language: str = "en",
+        source_label: Optional[str] = None,
+        max_entries: int = 50,
+    ) -> List[Dict[str, Any]]:
         """
         Parse RSS/Atom feed and return normalized dicts (not yet persisted).
         """
         parsed = feedparser.parse(feed_url)
         out: List[Dict[str, Any]] = []
-        for entry in parsed.entries[:50]:
+        for entry in parsed.entries[:max_entries]:
             link = getattr(entry, "link", "") or ""
             title = getattr(entry, "title", "") or "(no title)"
             summary = getattr(entry, "summary", "") or getattr(
@@ -101,19 +269,38 @@ class NewsIngestionService:
                     "title": title,
                     "content": summary or title,
                     "url": link,
-                    "source": f"rss:{host}",
+                    "source": source_label or f"rss:{host}",
                     "published_at": _parse_published(entry),
-                    "category": None,
-                    "language": "en",
+                    "category": category,
+                    "language": language,
                 }
             )
         logger.info("RSS %s parsed %s entries", feed_url, len(out))
         return out
 
-    def ingest_rss_feed(self, feed_url: str) -> int:
+    def ingest_rss_feed(
+        self,
+        feed_url: str,
+        *,
+        category: Optional[str] = None,
+        language: str = "en",
+        source_label: Optional[str] = None,
+        max_entries: int = 50,
+        published_after: Optional[datetime] = None,
+    ) -> int:
         """Persist new articles from a feed URL."""
         count = 0
-        for row in self.fetch_from_rss(feed_url):
+        rows = self.fetch_from_rss(
+            feed_url,
+            category=category,
+            language=language,
+            source_label=source_label,
+            max_entries=max_entries,
+        )
+        for row in rows:
+            pub = row.get("published_at")
+            if published_after and pub and pub < published_after:
+                continue
             exists = (
                 self.db.query(NewsArticle)
                 .filter(NewsArticle.url == row["url"])
@@ -124,6 +311,80 @@ class NewsIngestionService:
             self.ingest_article(row)
             count += 1
         return count
+
+    def ingest_prominent_recent_news(
+        self,
+        *,
+        days: int = 30,
+        limit_per_category: int = 100,
+        countries: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Ingest curated RU/US feeds and keep newest rows per category.
+
+        Feeds are RSS endpoints from prominent RU and US publishers. This
+        favors recent prominent-site coverage, not social ranking.
+        """
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        wanted = {c.lower() for c in countries or ["ru", "us"]}
+        inserted = 0
+        attempted = 0
+        failures: List[Dict[str, str]] = []
+
+        for feed in PROMINENT_NEWS_FEEDS:
+            if feed["country"].lower() not in wanted:
+                continue
+            attempted += 1
+            try:
+                inserted += self.ingest_rss_feed(
+                    feed["url"],
+                    category=feed["category"],
+                    language=feed["language"],
+                    source_label=feed["source"],
+                    max_entries=100,
+                    published_after=cutoff,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Prominent feed failed %s: %s",
+                    feed["url"],
+                    exc,
+                )
+                failures.append({"url": feed["url"], "error": str(exc)[:200]})
+
+        pruned = self.prune_categories(limit_per_category=limit_per_category)
+        return {
+            "attempted_feeds": attempted,
+            "inserted": inserted,
+            "pruned": pruned,
+            "failures": failures,
+        }
+
+    def prune_categories(self, *, limit_per_category: int = 100) -> int:
+        """Keep only newest rows per category; delete older generated data."""
+        categories = [
+            row[0]
+            for row in self.db.query(NewsArticle.category).distinct().all()
+            if row[0]
+        ]
+        deleted = 0
+        for category in categories:
+            rows = (
+                self.db.query(NewsArticle)
+                .filter(NewsArticle.category == category)
+                .order_by(
+                    NewsArticle.published_at.desc().nullslast(),
+                    NewsArticle.created_at.desc(),
+                    NewsArticle.id.desc(),
+                )
+                .offset(limit_per_category)
+                .all()
+            )
+            for article in rows:
+                self.db.delete(article)
+                deleted += 1
+        self.db.commit()
+        return deleted
 
     def fetch_from_newsapi(
         self,

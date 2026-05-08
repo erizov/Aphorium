@@ -74,7 +74,8 @@ export default function NewsStoryCard({ article, uiLang, onOpenDetail, onProcess
           </Typography>
           {pairs.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No matched aphorisms yet.
+              No archive matches on this card yet. Click Process to pair quotes
+              from the library (works even when the LLM summary line fails).
             </Typography>
           ) : (
             <List dense disablePadding>

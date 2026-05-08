@@ -78,6 +78,57 @@ class AIAphorismService:
             :600
         ]
 
+    def _candidate_quotes(
+        self,
+        article: NewsArticle,
+        *,
+        limit: int,
+    ) -> List[Quote]:
+        """Find quote candidates with relaxed matching before LLM ranking."""
+        language = (
+            article.language
+            if article.language in ("en", "ru")
+            else None
+        )
+        seen: set[int] = set()
+        candidates: List[Quote] = []
+
+        text = f"{article.title} {article.content[:500]}"
+        raw_terms = re.split(r"\W+", text)
+        terms = [w for w in raw_terms if len(w) > 3][:12]
+        queries = [
+            " ".join(terms[:6]),
+            article.title[:120],
+            article.category or "",
+            " ".join(terms[6:12]),
+        ]
+
+        for query in queries:
+            if not query.strip():
+                continue
+            for quote in self.quote_repo.search(
+                query=query.strip(),
+                language=language,
+                limit=limit,
+            ):
+                if quote.id not in seen:
+                    candidates.append(quote)
+                    seen.add(quote.id)
+                if len(candidates) >= limit:
+                    return candidates
+
+        # Last resort: keep the archive populated even when keyword search is
+        # too narrow for the story. LLM ranking can still choose among these.
+        q = self.db.query(Quote)
+        if language:
+            q = q.filter(Quote.language == language)
+        for quote in q.order_by(Quote.id.desc()).limit(limit).all():
+            if quote.id not in seen:
+                candidates.append(quote)
+                seen.add(quote.id)
+
+        return candidates[:limit]
+
     def find_relevant_aphorisms(
         self,
         article: NewsArticle,
@@ -89,23 +140,7 @@ class AIAphorismService:
 
         Uses search for candidates, then LLM JSON ranking when possible.
         """
-        q = " ".join(
-            w for w in re.split(r"\W+", article.title) if len(w) > 2
-        )[:200]
-        if not q:
-            q = article.title[:120]
-        quotes = self.quote_repo.search(
-            query=q or article.title,
-            language=article.language if article.language in (
-                "en", "ru") else None,
-            limit=40,
-        )
-        if not quotes:
-            quotes = self.quote_repo.search(
-                query=article.title[:80],
-                language=None,
-                limit=40,
-            )
+        quotes = self._candidate_quotes(article, limit=40)
         if not quotes:
             return []
 
@@ -171,8 +206,10 @@ class AIAphorismService:
             fallback.append(
                 {
                     "quote_id": c.id,
-                    "relevance_score": 45,
-                    "match_reason": "Keyword overlap with article title.",
+                    "relevance_score": 35,
+                    "match_reason": (
+                        "Relaxed archive match; LLM ranking was unavailable."
+                    ),
                 }
             )
         return fallback

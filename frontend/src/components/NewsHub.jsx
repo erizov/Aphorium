@@ -15,6 +15,24 @@ import NewsStoryCard from './NewsStoryCard'
 import NewsArticleDetail from './NewsArticleDetail'
 
 const API_BASE = '/api'
+const NEWS_CATEGORIES = [
+  ['breaking', 'Breaking'],
+  ['general', 'General'],
+  ['world', 'World'],
+  ['politics', 'Politics'],
+  ['us', 'US'],
+  ['europe', 'Europe'],
+  ['russia', 'Russia'],
+  ['business', 'Business'],
+  ['technology', 'Technology'],
+  ['ai', 'AI'],
+  ['science', 'Science'],
+  ['nature', 'Nature'],
+  ['health', 'Health'],
+  ['culture', 'Culture'],
+  ['sports', 'Sports'],
+  ['society', 'Society'],
+]
 
 function formatAxiosError(e) {
   const status = e?.response?.status
@@ -54,6 +72,8 @@ export default function NewsHub({ uiLang, showSnackbar }) {
     }
   }, [page, pageSize, category, q])
 
+  const hasFilters = Boolean(category || q.trim())
+
   React.useEffect(() => {
     load()
   }, [load])
@@ -76,7 +96,7 @@ export default function NewsHub({ uiLang, showSnackbar }) {
         News & aphorisms
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Current stories with generated lines and archive echoes. Process runs your local LLM.
+        Current stories with generated lines and archive echoes. Process uses your configured LLM.
       </Typography>
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3, alignItems: 'center' }}>
@@ -96,9 +116,9 @@ export default function NewsHub({ uiLang, showSnackbar }) {
           sx={{ minWidth: 160 }}
         >
           <MenuItem value="">All</MenuItem>
-          <MenuItem value="breaking">Breaking</MenuItem>
-          <MenuItem value="politics">Politics</MenuItem>
-          <MenuItem value="technology">Technology</MenuItem>
+          {NEWS_CATEGORIES.map(([value, label]) => (
+            <MenuItem value={value} key={value}>{label}</MenuItem>
+          ))}
         </TextField>
         <Button variant="contained" onClick={() => { setPage(1); load() }} disabled={loading}>
           {loading ? <CircularProgress size={22} /> : 'Refresh'}
@@ -131,10 +151,33 @@ export default function NewsHub({ uiLang, showSnackbar }) {
       )}
 
       {!loading && items.length === 0 && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          No articles yet. Ingest RSS via API or run{' '}
-          <Box component="span" sx={{ fontFamily: 'monospace' }}>python scripts/seed_news_demo.py</Box>.
-        </Typography>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            {hasFilters
+              ? 'No articles match the current search/category filters.'
+              : 'No articles yet. Ingest RSS via API or run '}
+            {!hasFilters && (
+              <Box component="span" sx={{ fontFamily: 'monospace' }}>
+                python scripts/seed_news_demo.py
+              </Box>
+            )}
+            {!hasFilters ? '.' : ''}
+          </Typography>
+          {hasFilters && (
+            <Button
+              size="small"
+              variant="text"
+              sx={{ mt: 1 }}
+              onClick={() => {
+                setQ('')
+                setCategory('')
+                setPage(1)
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
+        </Box>
       )}
 
       {total > pageSize && (

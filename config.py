@@ -45,7 +45,11 @@ class Settings(BaseSettings):
     translation_api_key: Optional[str] = None
     translation_delay: float = 0.5
 
-    # Local LLM (OpenAI-compatible, e.g. Ollama)
+    # LLM for news aphorism generation / summaries / quote matching.
+    # auto: use OpenAI when OPENAI_API_KEY is set, otherwise local.
+    # local: use LOCAL_LLM_* only, unless cloud fallback is enabled.
+    # openai: require OPENAI_API_KEY and use OpenAI directly.
+    llm_provider: str = "auto"
     local_llm_base_url: str = "http://127.0.0.1:11434/v1"
     local_llm_model: str = "llama3.2"
     local_llm_api_key: Optional[str] = "ollama"

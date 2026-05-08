@@ -194,3 +194,11 @@ class NewsApiIngestSchema(BaseModel):
     language: str = Field("en", max_length=10)
     page_size: int = Field(20, ge=1, le=100)
 
+
+class ProminentNewsIngestSchema(BaseModel):
+    """Ingest recent news from curated RU/US prominent RSS feeds."""
+
+    days: int = Field(30, ge=1, le=30)
+    limit_per_category: int = Field(100, ge=1, le=100)
+    countries: List[str] = Field(default_factory=lambda: ["ru", "us"])
+

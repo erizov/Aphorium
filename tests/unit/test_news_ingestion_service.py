@@ -1,10 +1,12 @@
 """News ingestion helpers and NewsAPI shaping."""
 
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
 
 from config import settings
+from models import NewsArticle
 from repositories.news_repository import NewsRepository
 from services.news_ingestion_service import (
     NewsIngestionService,
@@ -95,14 +97,22 @@ def test_ingest_from_newsapi_inserts_once(monkeypatch, db_session):
 
 
 def test_scrape_refuses_non_https(monkeypatch, db_session):
-    monkeypatch.setattr(settings, "news_scrape_allowed_hosts", ["example.com"])
+    monkeypatch.setattr(
+        settings,
+        "news_scrape_allowed_hosts",
+        ["example.com"],
+    )
     svc = NewsIngestionService(db_session)
     with pytest.raises(ValueError, match="https"):
         svc.fetch_article_page("http://example.com/x")
 
 
 def test_scrape_refuses_unknown_host(monkeypatch, db_session):
-    monkeypatch.setattr(settings, "news_scrape_allowed_hosts", ["safe.example"])
+    monkeypatch.setattr(
+        settings,
+        "news_scrape_allowed_hosts",
+        ["safe.example"],
+    )
     svc = NewsIngestionService(db_session)
     with pytest.raises(ValueError, match="news_scrape_allowed_hosts"):
         svc.fetch_article_page("https://evil.com/x")
@@ -120,3 +130,77 @@ def test_get_or_ingest_uses_existing_row(db_session):
     svc = NewsIngestionService(db_session)
     again = svc.get_or_ingest_article_by_url("https://example.com/existing")
     assert again.id == art.id
+
+
+def test_prominent_recent_ingest_filters_old_rows(monkeypatch, db_session):
+    svc = NewsIngestionService(db_session)
+
+    def fake_fetch(*args, **kwargs):
+        return [
+            {
+                "title": "Fresh",
+                "content": "Fresh body",
+                "url": "https://news.example/fresh",
+                "source": "rss:test",
+                "published_at": datetime.utcnow(),
+                "category": kwargs["category"],
+                "language": kwargs["language"],
+            },
+            {
+                "title": "Old",
+                "content": "Old body",
+                "url": "https://news.example/old",
+                "source": "rss:test",
+                "published_at": datetime(2000, 1, 1),
+                "category": kwargs["category"],
+                "language": kwargs["language"],
+            },
+        ]
+
+    monkeypatch.setattr(svc, "fetch_from_rss", fake_fetch)
+    monkeypatch.setattr(
+        "services.news_ingestion_service.PROMINENT_NEWS_FEEDS",
+        [
+            {
+                "url": "https://feed.example/rss",
+                "source": "rss:test",
+                "category": "general",
+                "language": "en",
+                "country": "us",
+            },
+        ],
+    )
+
+    result = svc.ingest_prominent_recent_news(
+        days=30,
+        limit_per_category=100,
+        countries=["us"],
+    )
+
+    rows = db_session.query(NewsArticle).all()
+    assert result["inserted"] == 1
+    assert len(rows) == 1
+    assert rows[0].title == "Fresh"
+
+
+def test_prune_categories_keeps_newest_100(db_session):
+    repo = NewsRepository(db_session)
+    for idx in range(105):
+        repo.create(
+            title=f"Article {idx}",
+            content="Body",
+            url=f"https://example.com/article-{idx}",
+            source="unit",
+            published_at=datetime(2024, 1, 1, 0, idx % 60),
+            category="general",
+            language="en",
+        )
+
+    svc = NewsIngestionService(db_session)
+    deleted = svc.prune_categories(limit_per_category=100)
+    remaining = db_session.query(NewsArticle).filter_by(
+        category="general",
+    ).count()
+
+    assert deleted == 5
+    assert remaining == 100
