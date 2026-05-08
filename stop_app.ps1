@@ -27,32 +27,8 @@ if (Test-Path "start_frontend.ps1") {
     Remove-Item "start_frontend.ps1" -Force -ErrorAction SilentlyContinue
 }
 
-# Find and kill uvicorn/python processes
-Get-Process python -ErrorAction SilentlyContinue | Where-Object {
-    $_.CommandLine -like "*uvicorn*" -or $_.CommandLine -like "*api.main*"
-} | ForEach-Object {
-    Write-Host "Stopping Python process $($_.Id)..." -ForegroundColor Cyan
-    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-}
-
-# Find and kill node processes (frontend)
-Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Host "Stopping node process $($_.Id)..." -ForegroundColor Cyan
-    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-}
-
-# Kill tail and sed processes (from log monitoring)
-Get-Process | Where-Object {
-    $_.ProcessName -eq "tail" -or 
-    $_.CommandLine -like "*tail*logs*" -or
-    $_.CommandLine -like "*sed*"
-} | ForEach-Object {
-    Write-Host "Stopping $($_.ProcessName) process $($_.Id)..." -ForegroundColor Cyan
-    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-}
-
 # Kill processes by port
-$backendPort = 8000
+$backendPort = 8001
 $frontendPort = 3000
 
 # Backend port
@@ -61,8 +37,10 @@ try {
         Select-Object -ExpandProperty OwningProcess -Unique
     if ($backendProcs) {
         foreach ($processId in $backendProcs) {
-            Write-Host "Stopping process on port $backendPort (PID: $processId)..." -ForegroundColor Cyan
-            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            if ($processId -is [int] -and $processId -gt 0) {
+                Write-Host "Stopping process on port $backendPort (PID: $processId)..." -ForegroundColor Cyan
+                Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 } catch {
@@ -75,8 +53,10 @@ try {
         Select-Object -ExpandProperty OwningProcess -Unique
     if ($frontendProcs) {
         foreach ($processId in $frontendProcs) {
-            Write-Host "Stopping process on port $frontendPort (PID: $processId)..." -ForegroundColor Cyan
-            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            if ($processId -is [int] -and $processId -gt 0) {
+                Write-Host "Stopping process on port $frontendPort (PID: $processId)..." -ForegroundColor Cyan
+                Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 } catch {

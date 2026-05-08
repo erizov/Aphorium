@@ -8,7 +8,7 @@ export default defineConfig({
     strictPort: true,  // Fail if port 3000 is not available - do NOT try other ports
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         ws: true,
       }

@@ -21,6 +21,15 @@ import TextToSpeechButton from './TextToSpeechButton'
 
 const API_BASE = '/api'
 
+function formatAxiosError(e) {
+  const status = e?.response?.status
+  const detail = e?.response?.data?.detail
+  const msg = e?.message || 'Request failed'
+  if (status && detail) return `${msg} (HTTP ${status}): ${detail}`
+  if (status) return `${msg} (HTTP ${status})`
+  return msg
+}
+
 function authorLabel(author, uiLang) {
   if (!author) return 'Unknown author'
   if (uiLang === 'ru') return author.name_ru || author.name_en || 'Unknown author'
@@ -41,7 +50,7 @@ export default function NewsArticleDetail({ articleId, open, onClose, uiLang, on
       const res = await axios.get(`${API_BASE}/news/articles/${articleId}`)
       setArticle(res.data)
     } catch (e) {
-      setError(e.message || 'Failed to load article')
+      setError(formatAxiosError(e))
       setArticle(null)
     } finally {
       setLoading(false)
@@ -63,7 +72,7 @@ export default function NewsArticleDetail({ articleId, open, onClose, uiLang, on
       await load()
       if (onProcessed) onProcessed()
     } catch (e) {
-      setError(e.message || 'Process failed')
+      setError(formatAxiosError(e))
     } finally {
       setProcessing(false)
     }

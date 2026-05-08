@@ -16,6 +16,15 @@ import NewsArticleDetail from './NewsArticleDetail'
 
 const API_BASE = '/api'
 
+function formatAxiosError(e) {
+  const status = e?.response?.status
+  const detail = e?.response?.data?.detail
+  const msg = e?.message || 'Request failed'
+  if (status && detail) return `${msg} (HTTP ${status}): ${detail}`
+  if (status) return `${msg} (HTTP ${status})`
+  return msg
+}
+
 export default function NewsHub({ uiLang, showSnackbar }) {
   const [items, setItems] = React.useState([])
   const [total, setTotal] = React.useState(0)
@@ -38,7 +47,7 @@ export default function NewsHub({ uiLang, showSnackbar }) {
       setItems(res.data.items || [])
       setTotal(res.data.total || 0)
     } catch (e) {
-      setError(e.message || 'Failed to load news')
+      setError(formatAxiosError(e))
       setItems([])
     } finally {
       setLoading(false)
@@ -57,7 +66,7 @@ export default function NewsHub({ uiLang, showSnackbar }) {
       if (showSnackbar) showSnackbar('Processing started — refresh when ready')
       await load()
     } catch (e) {
-      if (showSnackbar) showSnackbar(e.message || 'Process failed')
+      if (showSnackbar) showSnackbar(formatAxiosError(e))
     }
   }
 
