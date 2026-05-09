@@ -21,9 +21,19 @@ import TextToSpeechButton from './TextToSpeechButton'
 
 const API_BASE = '/api'
 
+function formatResponseDetail(detail) {
+  if (detail == null) return ''
+  if (typeof detail === 'string') return detail
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return String(detail)
+  }
+}
+
 function formatAxiosError(e) {
   const status = e?.response?.status
-  const detail = e?.response?.data?.detail
+  const detail = formatResponseDetail(e?.response?.data?.detail)
   const msg = e?.message || 'Request failed'
   if (status && detail) return `${msg} (HTTP ${status}): ${detail}`
   if (status) return `${msg} (HTTP ${status})`
@@ -34,6 +44,13 @@ function authorLabel(author, uiLang) {
   if (!author) return 'Unknown author'
   if (uiLang === 'ru') return author.name_ru || author.name_en || 'Unknown author'
   return author.name_en || author.name_ru || 'Unknown author'
+}
+
+function sourceBookTitle(source) {
+  if (!source?.title) return null
+  const t = source.title.trim().toLowerCase()
+  if (t.startsWith('http://') || t.startsWith('https://')) return null
+  return source.title
 }
 
 export default function NewsArticleDetail({ articleId, open, onClose, uiLang, onProcessed }) {
@@ -128,7 +145,13 @@ export default function NewsArticleDetail({ articleId, open, onClose, uiLang, on
               <Accordion key={row.quote?.id ?? idx} defaultExpanded={idx === 0}>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Typography variant="body2">
-                    {authorLabel(row.quote.author, uiLang)} — score {row.relevance_score}
+                    {[
+                      authorLabel(row.quote.author, uiLang),
+                      sourceBookTitle(row.quote.source),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}{' '}
+                    — score {row.relevance_score}
                   </Typography>
                 </AccordionSummary>
                 <AccordionDetails>

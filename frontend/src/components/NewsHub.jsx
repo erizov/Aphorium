@@ -15,6 +15,8 @@ import NewsStoryCard from './NewsStoryCard'
 import NewsArticleDetail from './NewsArticleDetail'
 
 const API_BASE = '/api'
+/** UI caps pagination regardless of total rows in the archive. */
+const MAX_NEWS_PAGES = 7
 const NEWS_CATEGORIES = [
   ['breaking', 'Breaking'],
   ['general', 'General'],
@@ -34,9 +36,19 @@ const NEWS_CATEGORIES = [
   ['society', 'Society'],
 ]
 
+function formatResponseDetail(detail) {
+  if (detail == null) return ''
+  if (typeof detail === 'string') return detail
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return String(detail)
+  }
+}
+
 function formatAxiosError(e) {
   const status = e?.response?.status
-  const detail = e?.response?.data?.detail
+  const detail = formatResponseDetail(e?.response?.data?.detail)
   const msg = e?.message || 'Request failed'
   if (status && detail) return `${msg} (HTTP ${status}): ${detail}`
   if (status) return `${msg} (HTTP ${status})`
@@ -78,12 +90,17 @@ export default function NewsHub({ uiLang, showSnackbar }) {
     load()
   }, [load])
 
-  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const rawPageCount = Math.max(1, Math.ceil(total / pageSize))
+  const pages = Math.min(MAX_NEWS_PAGES, rawPageCount)
+
+  React.useEffect(() => {
+    if (page > pages) setPage(pages)
+  }, [page, pages])
 
   const handleProcess = async (id) => {
     try {
       await axios.post(`${API_BASE}/news/articles/${id}/process`)
-      if (showSnackbar) showSnackbar('Processing started — refresh when ready')
+      if (showSnackbar) showSnackbar('Processed')
       await load()
     } catch (e) {
       if (showSnackbar) showSnackbar(formatAxiosError(e))

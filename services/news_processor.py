@@ -1,11 +1,16 @@
 """
 Run LLM pipeline on a stored news article (aphorisms + pairings).
+
+Archive quote matching runs only from POST /news/articles/{article_id}/process
+(one article per request — the card or dialog that invoked Process).
+RSS/NewsAPI ingestion never calls the LLM for pairings.
 """
 
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from config import settings
 from models import AphorismNewsPair, NewsAphorism, NewsArticle, NewsNotification
 from repositories.aphorism_news_pair_repository import (
     AphorismNewsPairRepository,
@@ -25,6 +30,9 @@ def process_news_article(
     """
     Regenerate aphorisms and quote pairings for one article.
 
+    LLM-backed pairing is limited to ``article_id`` and only runs when this
+    function is called (user pressed Process), never during feed ingest.
+
     Args:
         db: DB session.
         article_id: Target news row.
@@ -37,7 +45,14 @@ def process_news_article(
     news_repo = NewsRepository(db)
     article = news_repo.get_by_id(article_id)
     if not article:
-        raise ValueError(f"news article {article_id} not found")
+        raise LookupError(f"news article {article_id} not found")
+
+    ai = AIAphorismService(db)
+    # Run LLM before clearing rows so a failure leaves prior results intact.
+    bundle = ai.process_article_bundle(
+        article,
+        related_limit=settings.news_related_quotes_max,
+    )
 
     aph_id_rows = [
         row[0]
@@ -57,48 +72,25 @@ def process_news_article(
     ).delete(synchronize_session=False)
     db.commit()
 
-    ai = AIAphorismService(db)
     aph_repo = NewsAphorismRepository(db)
     pair_repo = AphorismNewsPairRepository(db)
-
-    try:
-        summary_text = ai.generate_aphoristic_summary(article)
-    except Exception as exc:
-        logger.warning("Summary aphorism failed: %s", exc)
-        summary_text = (
-            "Generated aphorism unavailable: configure OPENAI_API_KEY, set "
-            "LLM_PROVIDER=local with a running Ollama/model, then reprocess. "
-            "(Archive quote matching runs separately and may still appear.)"
-        )
     aph_repo.create(
         news_article_id=article.id,
-        aphorism_text=summary_text,
+        aphorism_text=bundle["aphorism"],
         language=article.language,
         generation_method="summary",
     )
 
-    if article.category == "breaking":
-        try:
-            alert_text = ai.transform_to_aphorism(
-                article.content,
-                language=article.language,
-                context={"title": article.title},
-            )
-            aph_repo.create(
-                news_article_id=article.id,
-                aphorism_text=alert_text,
-                language=article.language,
-                generation_method="breaking_alert",
-            )
-        except Exception as exc:
-            logger.warning("Breaking aphorism failed: %s", exc)
+    alert_text = bundle.get("breaking_alert")
+    if (article.category or "").lower() == "breaking" and alert_text:
+        aph_repo.create(
+            news_article_id=article.id,
+            aphorism_text=alert_text,
+            language=article.language,
+            generation_method="breaking_alert",
+        )
 
-    try:
-        matches = ai.find_relevant_aphorisms(article, limit=5)
-    except Exception as exc:
-        logger.warning("Pairing failed: %s", exc)
-        matches = []
-
+    matches = bundle["related_quotes"]
     seen = set()
     for row in matches:
         qid = int(row["quote_id"])

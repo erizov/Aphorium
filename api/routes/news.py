@@ -29,6 +29,7 @@ from models import AphorismNewsPair, NewsArticle, NewsAphorism
 from repositories.news_repository import NewsRepository
 from services.ai_aphorism_service import AIAphorismService
 from services.news_ingestion_service import NewsIngestionService
+from services.llm_client import _sanitize_error
 from services.news_processor import process_news_article
 from services.notification_service import news_ws_manager
 from logger_config import logger
@@ -36,7 +37,15 @@ from logger_config import logger
 router = APIRouter()
 
 LIST_APHORISM_CAP = 3
-LIST_PAIR_CAP = 3
+LIST_PAIR_CAP = settings.news_related_quotes_max
+
+
+def _looks_like_http_url(value: Optional[str]) -> bool:
+    """True when stored title is actually a link (not a book/source name)."""
+    if not value or not str(value).strip():
+        return False
+    lower = str(value).strip().lower()
+    return lower.startswith(("http://", "https://"))
 
 
 def _author_brief(author: Any) -> Optional[NewsAuthorBriefSchema]:
@@ -51,6 +60,9 @@ def _author_brief(author: Any) -> Optional[NewsAuthorBriefSchema]:
 
 def _source_brief(source: Any) -> Optional[NewsSourceBriefSchema]:
     if source is None:
+        return None
+    title = getattr(source, "title", None)
+    if title is not None and _looks_like_http_url(str(title)):
         return None
     return NewsSourceBriefSchema(
         id=source.id,
@@ -131,7 +143,7 @@ def _serialize_article_detail(article: NewsArticle) -> NewsArticleDetailSchema:
         article.pairs,
         key=lambda p: p.relevance_score,
         reverse=True,
-    )
+    )[:LIST_PAIR_CAP]
     preview = (
         article.content[:240]
         if article.content
@@ -226,11 +238,14 @@ async def run_process_pipeline(
 ) -> Dict[str, Any]:
     try:
         art = process_news_article(db, article_id)
-    except ValueError:
+    except LookupError:
         raise HTTPException(status_code=404, detail="Article not found")
     except Exception as exc:
         logger.exception("process pipeline failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=502,
+            detail=_sanitize_error(exc),
+        ) from exc
     if settings.websocket_enabled:
         try:
             await news_ws_manager.broadcast(

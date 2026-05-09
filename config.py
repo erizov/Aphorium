@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     news_fetch_interval_seconds: int = 300
     news_periodic_fetch_enabled: bool = False
     websocket_enabled: bool = True
+    # Archive quotes matched to news via LLM only when user POSTs .../process.
+    news_related_quotes_max: int = 2
 
     class Config:
         """Pydantic config."""

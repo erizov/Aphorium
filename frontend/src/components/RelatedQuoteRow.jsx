@@ -16,11 +16,24 @@ function authorLabel(author, uiLang) {
   return author.name_en || author.name_ru || 'Unknown author'
 }
 
+function isLikelyHttpUrl(str) {
+  if (!str || typeof str !== 'string') return false
+  const t = str.trim().toLowerCase()
+  return t.startsWith('http://') || t.startsWith('https://')
+}
+
+/** Book/work title for attribution; omit API URLs mistaken for titles. */
+function sourceBookTitle(source) {
+  if (!source?.title) return null
+  if (isLikelyHttpUrl(source.title)) return null
+  return source.title
+}
+
 export default function RelatedQuoteRow({ row, uiLang = 'en' }) {
   const { quote, relevance_score, match_reason } = row
   const secondary = [
     authorLabel(quote.author, uiLang),
-    quote.source ? quote.source.title : null,
+    sourceBookTitle(quote.source),
   ]
     .filter(Boolean)
     .join(' · ')

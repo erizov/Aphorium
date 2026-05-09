@@ -7,6 +7,7 @@ from api.main import app
 from config import settings
 from database import get_db
 from repositories.news_repository import NewsRepository
+from services.ai_aphorism_service import AIAphorismService
 
 
 @pytest.fixture
@@ -82,6 +83,60 @@ def test_ingest_newsapi_without_key(api_client, monkeypatch):
     monkeypatch.setattr(settings, "news_api_key", None)
     r = api_client.post("/api/news/ingest-newsapi", json={})
     assert r.status_code == 400
+
+
+def _fake_process_bundle(self, article, related_limit=5):
+    return {
+        "aphorism": "Bundled line.",
+        "breaking_alert": None,
+        "related_quotes": [],
+    }
+
+
+def test_process_article_ok(api_client, db_session, monkeypatch):
+    monkeypatch.setattr(
+        AIAphorismService,
+        "process_article_bundle",
+        _fake_process_bundle,
+    )
+    art = NewsRepository(db_session).create(
+        title="T",
+        content="Long body " * 20,
+        url="https://example.com/proc-1",
+        source="unit",
+        language="en",
+    )
+    r = api_client.post(f"/api/news/articles/{art.id}/process")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "article_id": art.id}
+
+
+def test_process_article_llm_error(api_client, db_session, monkeypatch):
+    def boom(self, article, related_limit=5):
+        raise RuntimeError("LLM provider unreachable")
+
+    monkeypatch.setattr(
+        AIAphorismService,
+        "process_article_bundle",
+        boom,
+    )
+    art = NewsRepository(db_session).create(
+        title="T",
+        content="Long body " * 20,
+        url="https://example.com/proc-2",
+        source="unit",
+        language="en",
+    )
+    r = api_client.post(f"/api/news/articles/{art.id}/process")
+    assert r.status_code == 502
+    body = r.json()
+    assert "detail" in body
+    assert "unreachable" in body["detail"].lower()
+
+
+def test_process_article_not_found(api_client):
+    r = api_client.post("/api/news/articles/999999/process")
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

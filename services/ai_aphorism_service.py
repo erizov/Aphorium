@@ -213,3 +213,130 @@ class AIAphorismService:
                 }
             )
         return fallback
+
+    def process_article_bundle(
+        self,
+        article: NewsArticle,
+        *,
+        related_limit: int = 2,
+    ) -> Dict[str, Any]:
+        """
+        One LLM call: summary aphorism, optional breaking line, quote ranks.
+
+        Used only from ``process_news_article`` (Process button); pairs apply
+        to that article only. Not invoked during RSS/NewsAPI ingestion.
+
+        Returns:
+            Keys: ``aphorism`` (str), ``breaking_alert`` (optional str),
+            ``related_quotes`` (list of dicts with quote_id, relevance_score,
+            match_reason). Candidate ids are validated against search results.
+        """
+        quotes = self._candidate_quotes(article, limit=40)
+        candidates: List[Quote] = quotes[:25]
+        allowed_ids = {c.id for c in candidates}
+        if candidates:
+            lines = [f"id={c.id}\t{c.text[:220]}" for c in candidates]
+            catalog = "\n".join(lines)
+        else:
+            catalog = "(no archive candidates in database)"
+
+        cat = (article.category or "").strip().lower()
+        is_breaking = cat == "breaking"
+        breaking_hint = (
+            'Set "breaking_alert" to a second distinct urgent one-liner '
+            "(max 220 characters)."
+            if is_breaking
+            else 'Set "breaking_alert" to null (not breaking news).'
+        )
+        user = (
+            "News title:\n"
+            f"{article.title}\n\n"
+            "News body excerpt:\n"
+            f"{article.content[:800]}\n\n"
+            f'News category slug: {article.category or "general"}\n\n'
+            "Candidate archive quotes (tab-separated id and text):\n"
+            f"{catalog}\n\n"
+            "Respond with JSON only — one object with exactly these keys:\n"
+            '- "aphorism": string, concise social-style summary (max 280 '
+            "characters)\n"
+            f'- "breaking_alert": string or null — {breaking_hint}\n'
+            '- "related_quotes": array (max '
+            f"{related_limit}) of objects, each with "
+            '"quote_id" (int from the candidate list), '
+            '"relevance_score" (0-100 int), "match_reason" (short string)\n'
+            "Use only quote_id values that appear in the candidate list; "
+            "if there are no candidates, use an empty array. "
+            f"Rank at most {related_limit} quotes for this single news story."
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You produce compact JSON only (no markdown). "
+                    f"You write aphorisms in {article.language}. "
+                    "When ranking quotes, scores are integers from 0 to 100."
+                ),
+            },
+            {"role": "user", "content": user},
+        ]
+        raw = chat_complete_json(
+            messages,
+            max_tokens=1400,
+            temperature=0.35,
+        )
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"LLM returned invalid JSON: {exc}; snippet: {raw[:240]!r}"
+            ) from exc
+        if not isinstance(data, dict):
+            raise ValueError("LLM JSON must be an object")
+
+        aphorism = data.get("aphorism")
+        if not isinstance(aphorism, str) or not aphorism.strip():
+            raise ValueError("LLM JSON missing non-empty aphorism string")
+
+        raw_alert = data.get("breaking_alert")
+        breaking_alert: Optional[str] = None
+        if is_breaking and raw_alert is not None:
+            if isinstance(raw_alert, str) and raw_alert.strip():
+                breaking_alert = raw_alert.strip()[:500]
+
+        related_raw = data.get("related_quotes")
+        if related_raw is None:
+            related_raw = []
+        if not isinstance(related_raw, list):
+            raise ValueError('LLM JSON "related_quotes" must be an array')
+
+        out_rows: List[Dict[str, Any]] = []
+        if allowed_ids:
+            for row in related_raw[:related_limit * 2]:
+                if not isinstance(row, dict):
+                    continue
+                qid = row.get("quote_id")
+                if qid is None:
+                    continue
+                try:
+                    qid_int = int(qid)
+                except (TypeError, ValueError):
+                    continue
+                if qid_int not in allowed_ids:
+                    continue
+                out_rows.append(
+                    {
+                        "quote_id": qid_int,
+                        "relevance_score": int(
+                            row.get("relevance_score", 50)
+                        ),
+                        "match_reason": str(row.get("match_reason", "")),
+                    }
+                )
+                if len(out_rows) >= related_limit:
+                    break
+
+        return {
+            "aphorism": aphorism.strip()[:600],
+            "breaking_alert": breaking_alert,
+            "related_quotes": out_rows,
+        }
